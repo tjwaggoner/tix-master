@@ -142,12 +142,12 @@ def create_bronze_stream(entity_config):
     )
 
     # Write to Bronze Delta table with streaming
+    # Using ingestion time clustering (automatic in DBR 11.3+) instead of partitioning
     query = (
         df_with_metadata.writeStream
         .format("delta")
         .option("checkpointLocation", checkpoint_path)
         .option("mergeSchema", "true")
-        .partitionBy("_ingestion_date")
         .trigger(availableNow=True)  # Process all available files then stop
         .table(table_name)
     )

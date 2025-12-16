@@ -42,14 +42,11 @@ processing:
 # Table Configuration
 tables:
   bronze:
+    # Using automatic ingestion time clustering (DBR 11.3+) instead of partitioning
     - name: "events_raw"
-      partition_by: ["_ingestion_date"]
     - name: "venues_raw"
-      partition_by: ["_ingestion_date"]
     - name: "attractions_raw"
-      partition_by: ["_ingestion_date"]
     - name: "classifications_raw"
-      partition_by: ["_ingestion_date"]
 
   silver:
     - name: "events"
