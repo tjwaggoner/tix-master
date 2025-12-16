@@ -7,11 +7,22 @@ Get up and running in 15 minutes!
 1. Databricks workspace: `https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com`
 2. Ticketmaster API key from: https://developer.ticketmaster.com/
 
-## Step 1: Set Up Secrets (2 min)
+## Step 1: Set Up Python Environment (1 min)
 
 ```bash
-# Install Databricks CLI if needed
-pip install databricks-cli
+cd ~/Documents/tix-master
+
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Step 2: Set Up Secrets (2 min)
+
+```bash
 
 # Configure
 databricks configure --token
@@ -24,7 +35,7 @@ databricks secrets put --scope ticketmaster --key api_key
 # Paste your Ticketmaster API key when prompted
 ```
 
-## Step 2: Deploy (3 min)
+## Step 3: Deploy (3 min)
 
 ```bash
 cd ~/Documents/tix-master
@@ -36,7 +47,7 @@ pip install -r requirements.txt
 databricks bundle deploy -t dev
 ```
 
-## Step 3: Create Catalog & Schemas (2 min)
+## Step 4: Create Catalog & Schemas (2 min)
 
 Open SQL Warehouse and run:
 
@@ -59,7 +70,7 @@ CREATE TABLE IF NOT EXISTS ticketmaster.gold.etl_log (
 );
 ```
 
-## Step 4: Run Initial Load (5 min)
+## Step 5: Run Initial Load (5 min)
 
 Option A - Via UI:
 1. Go to Workflows > Jobs
@@ -71,7 +82,7 @@ Option B - Via CLI:
 databricks jobs run-now --job-name "[dev] Ticketmaster Daily Ingestion"
 ```
 
-## Step 5: Verify (3 min)
+## Step 6: Verify (3 min)
 
 ```sql
 -- Check Bronze

@@ -50,6 +50,19 @@ tix-master/
 
 ## Getting Started
 
+### 1. Set Up Python Environment
+
+```bash
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Configure Databricks
+
 1. Configure Databricks workspace connection
 2. Set Ticketmaster API key in config
 3. Run ingestion pipeline
