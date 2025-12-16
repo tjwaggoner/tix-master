@@ -1,259 +1,207 @@
-# Ticketmaster Medallion Architecture - Complete Setup Guide
+# Ticketmaster Medallion Architecture - Setup Guide
 
-This guide will help you set up the entire Ticketmaster data lakehouse infrastructure in Databricks.
+Complete setup in 15 minutes by running SQL in the Databricks UI and then executing notebooks.
 
-## 🚀 Quick Setup (5 minutes)
+## 🚀 Quick Setup
 
-### Option 1: Automated Setup (Bash)
+### Step 1: Create Infrastructure (5 minutes)
 
-```bash
-cd ~/Documents/tix-master
+1. **Open SQL Warehouse UI**:
+   https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#sql
 
-# Activate virtual environment
-source venv/bin/activate
+2. **Create New Query** and run the `setup.sql` file contents:
 
-# Run setup script
-./setup_databricks.sh dev
+```sql
+-- Create Catalog
+CREATE CATALOG IF NOT EXISTS ticketmaster_dev;
+
+-- Create Schemas
+CREATE SCHEMA IF NOT EXISTS ticketmaster_dev.bronze;
+CREATE SCHEMA IF NOT EXISTS ticketmaster_dev.silver;
+CREATE SCHEMA IF NOT EXISTS ticketmaster_dev.gold;
+
+-- Create Volume
+CREATE VOLUME IF NOT EXISTS ticketmaster_dev.bronze.raw_data;
+
+-- Create ETL Log Table
+CREATE TABLE IF NOT EXISTS ticketmaster_dev.gold.etl_log (
+  log_id BIGINT GENERATED ALWAYS AS IDENTITY,
+  procedure_name STRING NOT NULL,
+  start_time TIMESTAMP,
+  end_time TIMESTAMP,
+  parameters STRING,
+  rows_processed INT,
+  status STRING,
+  error_message STRING,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- Verify Setup
+SHOW SCHEMAS IN ticketmaster_dev;
+SHOW VOLUMES IN ticketmaster_dev.bronze;
+SHOW TABLES IN ticketmaster_dev.gold;
 ```
 
-### Option 2: Automated Setup (Python)
-
-```bash
-cd ~/Documents/tix-master
-source venv/bin/activate
-
-# Setup only
-python setup_and_run.py --env dev
-
-# Setup + guidance for running notebooks
-python setup_and_run.py --env dev --run-notebooks
+Expected output:
+```
+✓ Catalog: ticketmaster_dev created
+✓ Schemas: bronze, silver, gold created
+✓ Volume: raw_data created
+✓ Table: etl_log created
 ```
 
 ---
 
-## 📋 What the Setup Scripts Do
+### Step 2: Run Notebooks (10 minutes)
 
-Both scripts automatically create:
+Execute notebooks in order. Navigate to:
+https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#workspace/Users/tanner.waggoner@databricks.com/tix-master
 
-✅ **Unity Catalog Objects**
-- Catalog: `ticketmaster_dev` (or `ticketmaster` for prod)
-- Schemas: `bronze`, `silver`, `gold`
-- Volume: `ticketmaster_dev.bronze.raw_data`
+**Run in this order:**
 
-✅ **Infrastructure Tables**
-- `ticketmaster_dev.gold.etl_log` - Tracks stored procedure executions
+#### 1. Bronze Layer
+**Notebook**: `src/bronze/bronze_auto_loader`
+- Attach to **Serverless** compute
+- Click **Run All**
+- **Creates**: `events_raw`, `venues_raw`, `attractions_raw`, `classifications_raw`
 
-✅ **Stored Procedures**
-- `sp_data_quality_checks` - 7 automated quality checks
-- `sp_generate_event_summary` - Monthly summary reports
-- `sp_refresh_gold_layer` - Gold layer refresh with SCD Type 2
+#### 2. Silver Layer
+**Notebook**: `src/silver/silver_transformations`
+- Attach to **Serverless** compute
+- Click **Run All**
+- **Creates**:
+  - Dimensions: `events`, `venues`, `attractions`, `classifications`, `markets`
+  - Bridge tables: `event_venues`, `event_attractions`
+  - With PK/FK constraints and liquid clustering
 
----
-
-## 🔐 Prerequisites
-
-### 1. Databricks Authentication (Already Done ✓)
-
-Your profile is configured:
-```bash
-databricks auth profiles
-# Shows: tix-master profile configured
-```
-
-### 2. Ticketmaster API Key
-
-Get your API key from https://developer.ticketmaster.com/
-
-```bash
-# Set API key in Databricks secrets
-databricks secrets put --scope ticketmaster --key api_key --profile tix-master
-```
-
-When prompted, paste your API key and save.
-
----
-
-## 📊 Running the Data Pipeline
-
-After setup completes, you need to run the notebooks to create tables and ingest data.
-
-### Step 1: Bronze Layer (Raw Data Ingestion)
-
-Navigate to:
-```
-https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#workspace/Users/tanner.waggoner@databricks.com/tix-master/src/bronze/bronze_auto_loader
-```
-
-1. Click the notebook
-2. Attach to **Serverless** compute
-3. Click **Run All**
-
-**Creates**: `events_raw`, `venues_raw`, `attractions_raw`, `classifications_raw` tables
-
-### Step 2: Silver Layer (Normalized Tables)
-
-Navigate to:
-```
-https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#workspace/Users/tanner.waggoner@databricks.com/tix-master/src/silver/silver_transformations
-```
-
-1. Click the notebook
-2. Attach to **Serverless** compute
-3. Click **Run All**
-
-**Creates**:
-- `events`, `venues`, `attractions`, `classifications`, `markets` (dimensions)
-- `event_venues`, `event_attractions` (bridge tables)
-- All with PK/FK constraints
-- Liquid clustering enabled
-
-### Step 3: Gold Layer (Star Schema)
-
-Navigate to:
-```
-https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#workspace/Users/tanner.waggoner@databricks.com/tix-master/src/gold/gold_star_schema
-```
-
-1. Click the notebook
-2. Attach to **Serverless** compute
-3. Click **Run All**
-
-**Creates**:
-- `fact_events` (with identity surrogate keys)
-- `dim_venue`, `dim_attraction`, `dim_date`, `dim_classification`, `dim_market`
-- Liquid clustering configured
-- Materialized views for common aggregations
+#### 3. Gold Layer
+**Notebook**: `src/gold/gold_star_schema`
+- Attach to **Serverless** compute
+- Click **Run All**
+- **Creates**:
+  - Fact: `fact_events` (with identity keys)
+  - Dimensions: `dim_venue`, `dim_attraction`, `dim_date`, `dim_classification`, `dim_market`
+  - Liquid clustering configured
+  - Materialized views
 
 ---
 
 ## ✅ Verification
 
-### Check Tables Were Created
-
-```bash
-# List Bronze tables
-databricks sql execute \
-  --warehouse-id f4040a30fe978741 \
-  --statement 'SHOW TABLES IN ticketmaster_dev.bronze' \
-  --profile tix-master
-
-# List Silver tables
-databricks sql execute \
-  --warehouse-id f4040a30fe978741 \
-  --statement 'SHOW TABLES IN ticketmaster_dev.silver' \
-  --profile tix-master
-
-# List Gold tables
-databricks sql execute \
-  --warehouse-id f4040a30fe978741 \
-  --statement 'SHOW TABLES IN ticketmaster_dev.gold' \
-  --profile tix-master
-```
-
-### Check Data
+After running all notebooks, verify in SQL Warehouse:
 
 ```sql
--- In SQL Warehouse (https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#sql)
-
--- Check Bronze
+-- Check Bronze tables
+SHOW TABLES IN ticketmaster_dev.bronze;
 SELECT COUNT(*) FROM ticketmaster_dev.bronze.events_raw;
 
--- Check Silver
+-- Check Silver tables
+SHOW TABLES IN ticketmaster_dev.silver;
 SELECT COUNT(*) FROM ticketmaster_dev.silver.events;
 
--- Check Gold
+-- Check Gold tables and query star schema
+SHOW TABLES IN ticketmaster_dev.gold;
+
 SELECT
   d.month_name,
-  COUNT(*) as events,
-  AVG(f.price_max) as avg_price
+  COUNT(*) as event_count,
+  AVG(f.price_max) as avg_max_price
 FROM ticketmaster_dev.gold.fact_events f
 JOIN ticketmaster_dev.gold.dim_date d ON f.event_date_key = d.date_key
+WHERE f.is_test = FALSE
 GROUP BY d.month_name
 ORDER BY d.month_name;
 ```
 
 ---
 
-## 🎯 Expected Results
+## 📊 Expected Results
 
-After completing all steps, you should have:
-
-| Layer | Tables | Records (approx) |
-|-------|--------|-----------------|
-| **Bronze** | 4 tables | 10K-100K total |
-| **Silver** | 7 tables | Normalized & deduplicated |
-| **Gold** | 6 tables | Star schema ready |
+| Layer | Tables | Features |
+|-------|--------|----------|
+| **Bronze** | 4 tables | Auto Loader, ingestion time clustering |
+| **Silver** | 7 tables | PK/FK constraints, liquid clustering |
+| **Gold** | 6 tables | Identity keys, star schema, liquid clustering |
 
 ---
 
 ## 🔧 Troubleshooting
 
-### Issue: "Warehouse not found"
+### No Data in Bronze Tables
 
-**Solution**: The warehouse ID might have changed. Find yours:
-```bash
-databricks warehouses list --profile tix-master
-```
-Update the warehouse ID in both setup scripts.
+**Cause**: API ingestion hasn't run yet or no data in Volume
 
-### Issue: "Notebook execution failed"
+**Solution**:
+1. Check Volume has data: `LIST '/Volumes/ticketmaster_dev/bronze/raw_data/'`
+2. If empty, you need to run API ingestion first (see `src/ingestion/ticketmaster_ingestion.py`)
+
+### Notebook Execution Failed
 
 **Possible causes**:
-1. **No data in Volume**: Run API ingestion first
-2. **Serverless not available**: Use a regular cluster instead
-3. **Permissions**: Ensure you have CREATE TABLE permissions
+- Serverless compute not available → Use a regular cluster
+- No permissions → Check Unity Catalog permissions
+- Syntax error → Check notebook cell output for details
 
-**Solution**: Check the notebook error output and adjust accordingly.
+### Permission Denied
 
-### Issue: "API rate limit exceeded"
-
-**Solution**: The Ticketmaster API has rate limits. Wait a few minutes and try again.
-
-### Issue: "Stored procedures not found"
-
-**Solution**: Run them manually via SQL Warehouse:
-1. Go to SQL Warehouse UI
-2. Open each SQL file from `/tix-master/sql/stored_procedures/`
-3. Replace `ticketmaster` with your catalog name
-4. Execute the SQL
+**Solution**: Ensure you have:
+- CREATE CATALOG permission
+- CREATE SCHEMA permission
+- USE CATALOG permission on `ticketmaster_dev`
 
 ---
 
-## 🚀 Next Steps
+## 🎯 Next Steps
 
-After setup is complete:
+### 1. Install Stored Procedures (Optional)
 
-### 1. Enable AI/BI Genie
+Run SQL files from `sql/stored_procedures/` in SQL Warehouse:
+- `sp_data_quality_checks.sql` - Automated quality checks
+- `sp_generate_event_summary.sql` - Monthly reports
+- `sp_refresh_gold_layer.sql` - Gold layer refresh
+
+### 2. Enable AI/BI Genie (Optional)
 
 Follow: `src/ai/setup_genie.md`
 
-### 2. Set Up RAG Assistant
+### 3. Set Up RAG Assistant (Optional)
 
 Run: `src/ai/rag_assistant.py`
 
-### 3. Create Schedules (Optional)
-
-Set up jobs to run notebooks on a schedule using Databricks Jobs UI.
-
 ### 4. Connect BI Tools
 
-Connect Tableau, Power BI, or Looker to your SQL Warehouse using the Gold layer tables.
+Use Gold layer tables with your BI tool:
+- Tableau
+- Power BI
+- Looker
+
+Connection details available in SQL Warehouse UI.
 
 ---
 
-## 📚 Additional Resources
+## 📚 Documentation
 
-- **Architecture**: See `docs/ARCHITECTURE.md` for complete technical design
-- **Deployment**: See `docs/DEPLOYMENT_GUIDE.md` for detailed deployment instructions
-- **Quick Reference**: See `QUICKSTART.md` for fast commands
+- **Architecture**: `docs/ARCHITECTURE.md` - Complete technical design
+- **Deployment**: `docs/DEPLOYMENT_GUIDE.md` - Detailed deployment
+- **Quick Start**: `QUICKSTART.md` - Fast commands reference
 
 ---
 
-## 🆘 Need Help?
+## 🔗 Workspace Links
 
-- Check error logs in notebooks
-- Review `docs/DEPLOYMENT_GUIDE.md` troubleshooting section
-- Verify permissions in Unity Catalog
-- Check SQL Warehouse is running
+- **Workspace Home**: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+- **Your Notebooks**: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#workspace/Users/tanner.waggoner@databricks.com/tix-master
+- **SQL Warehouse**: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com/#sql
 
-Happy building! 🎫✨
+---
+
+## ✨ You're Done!
+
+You now have a complete Medallion Architecture with:
+- ✅ Liquid clustering (2025 best practice)
+- ✅ PK/FK constraints with ERD
+- ✅ Identity surrogate keys
+- ✅ Star schema ready for BI
+- ✅ Stored procedures with control flow
+
+Happy analyzing! 🎫
