@@ -1,0 +1,48 @@
+# Databricks Asset Bundle Configuration
+# This file defines the deployment configuration for the Ticketmaster Medallion Architecture
+
+bundle:
+  name: ticketmaster-medallion
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog name
+    default: ticketmaster
+
+  warehouse_id:
+    description: SQL Warehouse ID for queries
+    default: ${var.default_warehouse_id}
+
+  cluster_node_type:
+    description: Node type for job clusters
+    default: i3.xlarge
+
+targets:
+  # Development environment
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+
+    variables:
+      environment: dev
+      catalog: ticketmaster_dev
+
+  # Production environment
+  prod:
+    mode: production
+    workspace:
+      host: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+      root_path: /Workspace/Production/ticketmaster-medallion
+
+    variables:
+      environment: prod
+      catalog: ticketmaster
+
+    # Require manual approval for production
+    run_as:
+      service_principal_name: ticketmaster-prod-sp

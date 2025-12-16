@@ -1,0 +1,26 @@
+# Python dependencies for Ticketmaster Medallion Architecture
+
+# Databricks
+databricks-sdk>=0.18.0
+databricks-connect>=14.0.0
+
+# API and HTTP
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Data Processing
+pyspark>=3.5.0
+pandas>=2.0.0
+pyarrow>=12.0.0
+
+# Configuration
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Utilities
+tenacity>=8.2.0  # For API retry logic
+pydantic>=2.0.0  # For data validation
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0

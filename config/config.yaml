@@ -1,0 +1,88 @@
+# Ticketmaster Medallion Architecture Configuration
+
+# Databricks Configuration
+databricks:
+  workspace_url: "https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com"
+  workspace_id: "7474655348825387"
+
+# Unity Catalog Configuration
+unity_catalog:
+  catalog_name: "ticketmaster"
+  schemas:
+    bronze: "bronze"
+    silver: "silver"
+    gold: "gold"
+  volume_name: "raw_data"
+  volume_path: "/Volumes/ticketmaster/bronze/raw_data"
+
+# Ticketmaster API Configuration
+ticketmaster_api:
+  base_url: "https://app.ticketmaster.com/discovery/v2"
+  # API key should be set as environment variable: TICKETMASTER_API_KEY
+  endpoints:
+    events: "/events.json"
+    venues: "/venues.json"
+    attractions: "/attractions.json"
+    classifications: "/classifications.json"
+  pagination:
+    page_size: 200
+    max_pages: 100
+
+# Data Processing Configuration
+processing:
+  checkpoint_location: "/tmp/checkpoints"
+  auto_loader:
+    format: "json"
+    schema_location: "/tmp/schema_inference"
+    merge_schema: true
+  deduplication:
+    event_id_column: "id"
+    timestamp_column: "dates.start.dateTime"
+
+# Table Configuration
+tables:
+  bronze:
+    - name: "events_raw"
+      partition_by: ["_ingestion_date"]
+    - name: "venues_raw"
+      partition_by: ["_ingestion_date"]
+    - name: "attractions_raw"
+      partition_by: ["_ingestion_date"]
+    - name: "classifications_raw"
+      partition_by: ["_ingestion_date"]
+
+  silver:
+    - name: "events"
+      primary_key: ["event_id"]
+    - name: "venues"
+      primary_key: ["venue_id"]
+    - name: "attractions"
+      primary_key: ["attraction_id"]
+    - name: "teams"
+      primary_key: ["team_id"]
+    - name: "classifications"
+      primary_key: ["classification_id"]
+    - name: "markets"
+      primary_key: ["market_id"]
+    - name: "event_venues"
+      primary_key: ["event_id", "venue_id"]
+    - name: "event_attractions"
+      primary_key: ["event_id", "attraction_id"]
+
+  gold:
+    - name: "fact_events"
+      partition_by: ["event_date_key"]
+    - name: "dim_venue"
+    - name: "dim_attraction"
+    - name: "dim_date"
+    - name: "dim_classification"
+    - name: "dim_market"
+
+# AI/BI Configuration
+ai_bi:
+  genie:
+    enabled: true
+  rag:
+    model_serving_endpoint: "databricks-meta-llama-3-1-70b-instruct"
+    vector_search_endpoint: "ticketmaster_events_index"
+    embedding_model: "databricks-bge-large-en"
