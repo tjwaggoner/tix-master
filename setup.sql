@@ -3,15 +3,12 @@
 -- Run this in Databricks SQL Warehouse UI
 -- ============================================================
 
--- IMPORTANT: First check if the catalog already exists
--- If this is a new workspace without catalogs, you may need admin to enable Unity Catalog
+-- IMPORTANT: Using existing fevm_shared_catalog
+-- Creating a new catalog requires special permissions
+-- Instead, we'll create schemas within the existing catalog
 
--- Step 1: Create Catalog (requires CREATE CATALOG permission)
-CREATE CATALOG IF NOT EXISTS ticketmaster_dev
-COMMENT 'Ticketmaster Medallion Architecture - Development';
-
--- Step 2: Use the new catalog (this avoids hive_metastore errors)
-USE CATALOG ticketmaster_dev;
+-- Step 1: Use existing Unity Catalog
+USE CATALOG fevm_shared_catalog;
 
 -- Step 3: Create Schemas (now we're in the catalog context)
 CREATE SCHEMA IF NOT EXISTS bronze
