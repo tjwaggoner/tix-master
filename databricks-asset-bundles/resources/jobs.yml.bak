@@ -48,7 +48,7 @@ resources:
             - task_key: ingest_api_data
 
           notebook_task:
-            notebook_path: ./src/bronze/bronze_auto_loader.py
+            notebook_path: ../src/bronze/bronze_auto_loader
             base_parameters:
               catalog: ${var.catalog}
 
@@ -67,7 +67,7 @@ resources:
             - task_key: process_bronze
 
           notebook_task:
-            notebook_path: ./src/silver/silver_transformations.py
+            notebook_path: ../src/silver/silver_transformations
             base_parameters:
               catalog: ${var.catalog}
 
@@ -83,7 +83,7 @@ resources:
             - task_key: process_silver
 
           notebook_task:
-            notebook_path: ./src/gold/gold_star_schema.py
+            notebook_path: ../src/gold/gold_star_schema
             base_parameters:
               catalog: ${var.catalog}
 
@@ -100,7 +100,7 @@ resources:
 
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query: |
               DECLARE total_checks INT;
               DECLARE failed_checks INT;
               DECLARE quality_score DECIMAL(5,2);
@@ -122,7 +122,7 @@ resources:
 
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query: |
               DECLARE rows_processed INT;
               DECLARE status STRING;
 
@@ -143,7 +143,8 @@ resources:
 
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query:
+              query: |
                 -- Refresh event documents
                 INSERT OVERWRITE ${var.catalog}.gold.event_documents
                 SELECT
@@ -194,7 +195,8 @@ resources:
         - task_key: generate_summary
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query:
+              query: |
                 DECLARE total_reports INT;
                 DECLARE status STRING;
 
@@ -219,7 +221,8 @@ resources:
         - task_key: optimize_tables
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query:
+              query: |
                 -- Optimize Bronze tables
                 OPTIMIZE ${var.catalog}.bronze.events_raw;
                 OPTIMIZE ${var.catalog}.bronze.venues_raw;
@@ -241,7 +244,8 @@ resources:
             - task_key: optimize_tables
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query:
+              query: |
                 -- Vacuum Bronze (keep 7 days)
                 VACUUM ${var.catalog}.bronze.events_raw RETAIN 168 HOURS;
                 VACUUM ${var.catalog}.bronze.venues_raw RETAIN 168 HOURS;
@@ -258,7 +262,8 @@ resources:
             - task_key: vacuum_old_files
           sql_task:
             warehouse_id: ${var.warehouse_id}
-            statement: |
+            query:
+              query: |
                 -- Update statistics for query optimization
                 ANALYZE TABLE ${var.catalog}.gold.fact_events COMPUTE STATISTICS FOR ALL COLUMNS;
                 ANALYZE TABLE ${var.catalog}.gold.dim_venue COMPUTE STATISTICS FOR ALL COLUMNS;

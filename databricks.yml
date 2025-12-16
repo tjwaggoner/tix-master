@@ -5,9 +5,13 @@ bundle:
   name: ticketmaster-medallion
 
 include:
-  - resources/*.yml
+  - databricks-asset-bundles/resources/jobs-simple.yml
 
 variables:
+  environment:
+    description: Environment name
+    default: dev
+
   catalog:
     description: Unity Catalog name
     default: ticketmaster
@@ -15,6 +19,10 @@ variables:
   warehouse_id:
     description: SQL Warehouse ID for queries
     default: ${var.default_warehouse_id}
+
+  default_warehouse_id:
+    description: Default SQL Warehouse ID
+    default: f4040a30fe978741
 
   cluster_node_type:
     description: Node type for job clusters
@@ -27,10 +35,12 @@ targets:
     default: true
     workspace:
       host: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+      profile: tix-master
 
     variables:
       environment: dev
       catalog: ticketmaster_dev
+      default_warehouse_id: f4040a30fe978741
 
   # Production environment
   prod:
