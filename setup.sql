@@ -3,26 +3,32 @@
 -- Run this in Databricks SQL Warehouse UI
 -- ============================================================
 
--- Step 1: Create Catalog
+-- IMPORTANT: First check if the catalog already exists
+-- If this is a new workspace without catalogs, you may need admin to enable Unity Catalog
+
+-- Step 1: Create Catalog (requires CREATE CATALOG permission)
 CREATE CATALOG IF NOT EXISTS ticketmaster_dev
 COMMENT 'Ticketmaster Medallion Architecture - Development';
 
--- Step 2: Create Schemas
-CREATE SCHEMA IF NOT EXISTS ticketmaster_dev.bronze
+-- Step 2: Use the new catalog (this avoids hive_metastore errors)
+USE CATALOG ticketmaster_dev;
+
+-- Step 3: Create Schemas (now we're in the catalog context)
+CREATE SCHEMA IF NOT EXISTS bronze
 COMMENT 'Bronze layer - raw data from Ticketmaster API with Auto Loader';
 
-CREATE SCHEMA IF NOT EXISTS ticketmaster_dev.silver
+CREATE SCHEMA IF NOT EXISTS silver
 COMMENT 'Silver layer - normalized relational tables with PK/FK constraints and liquid clustering';
 
-CREATE SCHEMA IF NOT EXISTS ticketmaster_dev.gold
+CREATE SCHEMA IF NOT EXISTS gold
 COMMENT 'Gold layer - star schema for BI with identity keys and liquid clustering';
 
--- Step 3: Create Volume
-CREATE VOLUME IF NOT EXISTS ticketmaster_dev.bronze.raw_data
+-- Step 4: Create Volume
+CREATE VOLUME IF NOT EXISTS bronze.raw_data
 COMMENT 'Volume for staging raw JSON from Ticketmaster API';
 
--- Step 4: Create ETL Log Table
-CREATE TABLE IF NOT EXISTS ticketmaster_dev.gold.etl_log (
+-- Step 5: Create ETL Log Table
+CREATE TABLE IF NOT EXISTS gold.etl_log (
   log_id BIGINT GENERATED ALWAYS AS IDENTITY,
   procedure_name STRING NOT NULL,
   start_time TIMESTAMP,
@@ -35,11 +41,11 @@ CREATE TABLE IF NOT EXISTS ticketmaster_dev.gold.etl_log (
   CONSTRAINT etl_log_pk PRIMARY KEY (log_id)
 ) COMMENT 'Tracks execution of ETL stored procedures including performance metrics and errors';
 
--- Step 5: Verify Setup
+-- Step 6: Verify Setup
 SHOW CATALOGS LIKE 'ticketmaster_dev';
-SHOW SCHEMAS IN ticketmaster_dev;
-SHOW VOLUMES IN ticketmaster_dev.bronze;
-SHOW TABLES IN ticketmaster_dev.gold;
+SHOW SCHEMAS;
+SHOW VOLUMES IN bronze;
+SHOW TABLES IN gold;
 
 -- ============================================================
 -- Setup Complete!
