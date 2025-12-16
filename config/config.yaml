@@ -54,6 +54,7 @@ tables:
   silver:
     - name: "events"
       primary_key: ["event_id"]
+      cluster_by: ["event_date", "status_code"]
     - name: "venues"
       primary_key: ["venue_id"]
     - name: "attractions"
@@ -71,7 +72,7 @@ tables:
 
   gold:
     - name: "fact_events"
-      partition_by: ["event_date_key"]
+      cluster_by: ["event_date_key", "venue_sk"]
     - name: "dim_venue"
     - name: "dim_attraction"
     - name: "dim_date"

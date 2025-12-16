@@ -226,12 +226,12 @@ resources:
                 OPTIMIZE ${var.catalog}.bronze.attractions_raw;
 
                 -- Optimize Silver tables
-                OPTIMIZE ${var.catalog}.silver.events ZORDER BY (event_date);
+                OPTIMIZE ${var.catalog}.silver.events;
                 OPTIMIZE ${var.catalog}.silver.venues;
                 OPTIMIZE ${var.catalog}.silver.attractions;
 
                 -- Optimize Gold tables
-                OPTIMIZE ${var.catalog}.gold.fact_events ZORDER BY (event_date_key, venue_sk);
+                OPTIMIZE ${var.catalog}.gold.fact_events;
                 OPTIMIZE ${var.catalog}.gold.dim_venue;
                 OPTIMIZE ${var.catalog}.gold.dim_attraction;
                 OPTIMIZE ${var.catalog}.gold.dim_date;

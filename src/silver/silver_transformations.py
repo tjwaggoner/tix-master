@@ -339,7 +339,6 @@ def create_silver_events():
         .format("delta")
         .mode("overwrite")
         .option("mergeSchema", "true")
-        .partitionBy("event_date")
         .saveAsTable(silver_table)
     )
 
@@ -347,6 +346,13 @@ def create_silver_events():
     spark.sql(f"""
         ALTER TABLE {silver_table}
         ADD CONSTRAINT events_pk PRIMARY KEY (event_id)
+    """)
+
+    # Enable liquid clustering (Databricks Runtime 15.2+)
+    # Clustering by event_date and status_code for efficient query patterns
+    spark.sql(f"""
+        ALTER TABLE {silver_table}
+        CLUSTER BY (event_date, status_code)
     """)
 
     print(f"✓ Created {silver_table} with {silver_events.count():,} records")
@@ -581,7 +587,7 @@ for table in silver_tables:
 
 # MAGIC %sql
 # MAGIC -- Optimize all silver tables
-# MAGIC OPTIMIZE ticketmaster.silver.events ZORDER BY (event_date);
+# MAGIC OPTIMIZE ticketmaster.silver.events;
 # MAGIC OPTIMIZE ticketmaster.silver.venues;
 # MAGIC OPTIMIZE ticketmaster.silver.attractions;
 # MAGIC OPTIMIZE ticketmaster.silver.classifications;

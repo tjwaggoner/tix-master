@@ -300,7 +300,8 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create fact_events with foreign keys to dimensions
+# MAGIC -- Create fact_events with foreign keys to dimensions and liquid clustering
+# MAGIC -- Using liquid clustering (DBR 15.2+) instead of partitioning for better performance
 # MAGIC CREATE OR REPLACE TABLE ticketmaster.gold.fact_events (
 # MAGIC   event_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   event_id STRING NOT NULL,
@@ -328,7 +329,8 @@ create_dim_date()
 # MAGIC     REFERENCES ticketmaster.gold.dim_venue(venue_sk),
 # MAGIC   CONSTRAINT fact_events_attraction_fk FOREIGN KEY (attraction_sk)
 # MAGIC     REFERENCES ticketmaster.gold.dim_attraction(attraction_sk)
-# MAGIC );
+# MAGIC )
+# MAGIC CLUSTER BY (event_date_key, venue_sk);
 
 # COMMAND ----------
 
@@ -521,9 +523,9 @@ for table in gold_tables:
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Optimize fact table with ZORDER on frequently filtered columns
-# MAGIC OPTIMIZE ticketmaster.gold.fact_events
-# MAGIC ZORDER BY (event_date_key, venue_sk);
+# MAGIC -- Optimize fact table (liquid clustering handles layout automatically)
+# MAGIC -- No ZORDER needed with liquid clustering
+# MAGIC OPTIMIZE ticketmaster.gold.fact_events;
 
 # COMMAND ----------
 

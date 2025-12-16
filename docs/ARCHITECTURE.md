@@ -264,9 +264,10 @@ User query → Semantic search → Retrieve context → LLM generation
 
 ### Storage Optimization
 - **OPTIMIZE**: Compaction of small files
-- **Z-ORDER**: Multi-dimensional clustering on fact table
+- **Liquid Clustering**: Modern alternative to partitioning + ZORDER (DBR 15.2+)
   ```sql
-  OPTIMIZE fact_events ZORDER BY (event_date_key, venue_sk);
+  CREATE TABLE fact_events (...) CLUSTER BY (event_date_key, venue_sk);
+  OPTIMIZE fact_events;  -- No ZORDER needed with liquid clustering
   ```
 - **VACUUM**: Remove old file versions
 
@@ -277,7 +278,7 @@ User query → Semantic search → Retrieve context → LLM generation
   ```
 - **Identity Keys**: Push-down predicates, smaller joins
 - **Materialized Views**: Pre-aggregated metrics
-- **Partition Pruning**: Date-based partitioning
+- **Liquid Clustering**: Automatic data layout optimization (7x faster than partitioning + ZORDER)
 
 ### Streaming Optimization
 - **trigger(availableNow=True)**: Batch streaming mode
@@ -332,7 +333,7 @@ GRANT ALL PRIVILEGES ON SCHEMA ticketmaster.bronze TO `etl_service_principal`;
 
 ### Growth Strategy
 1. **Horizontal scaling**: Increase cluster workers
-2. **Liquid clustering**: Replace partitioning at large scale
+2. **Liquid clustering**: Already implemented - handles growth automatically
 3. **Photon acceleration**: Enable for 3-5x speedup
 4. **Serverless compute**: Auto-scaling SQL Warehouse
 5. **Incremental processing**: Only process changed data

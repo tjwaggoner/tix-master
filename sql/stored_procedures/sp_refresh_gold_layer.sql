@@ -127,7 +127,7 @@ BEGIN
   SET event_count = (SELECT COUNT(*) FROM ticketmaster.gold.fact_events);
 
   -- Step 3: Optimize tables
-  OPTIMIZE ticketmaster.gold.fact_events ZORDER BY (event_date_key);
+  OPTIMIZE ticketmaster.gold.fact_events;
   OPTIMIZE ticketmaster.gold.dim_venue;
   OPTIMIZE ticketmaster.gold.dim_attraction;
 
