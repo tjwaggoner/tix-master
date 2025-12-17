@@ -104,6 +104,40 @@ def add_primary_key_if_not_exists(table_name: str, constraint_name: str, pk_colu
     )
     print(f"  ✓ Added constraint '{constraint_name}' on {table_name}")
 
+def add_foreign_key_if_not_exists(table_name: str, constraint_name: str, fk_columns: list, reference_table: str, reference_columns: list):
+    """
+    Add a foreign key constraint if it doesn't already exist.
+    
+    Args:
+        table_name: Full table name (catalog.schema.table)
+        constraint_name: Name of the constraint
+        fk_columns: List of column names that make up the foreign key
+        reference_table: Full reference table name (catalog.schema.table)
+        reference_columns: List of column names in the reference table
+    """
+    # Check if constraint already exists using information_schema
+    catalog, schema, table = table_name.split(".")
+    constraints = spark.sql(f"""
+        SELECT constraint_name
+        FROM {catalog}.information_schema.table_constraints
+        WHERE table_schema = '{schema}'
+          AND table_name = '{table}'
+          AND constraint_type = 'FOREIGN KEY'
+          AND constraint_name = '{constraint_name}'
+    """).collect()
+    
+    if constraints:
+        print(f"  ⚠️  Constraint '{constraint_name}' already exists on {table_name}, skipping")
+        return
+    
+    # Add foreign key constraint
+    fk_cols_str = ", ".join(fk_columns)
+    ref_cols_str = ", ".join(reference_columns)
+    spark.sql(
+        f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} FOREIGN KEY ({fk_cols_str}) REFERENCES {reference_table} ({ref_cols_str})"
+    )
+    print(f"  ✓ Added constraint '{constraint_name}' on {table_name}")
+
 # COMMAND ----------
 
 # MAGIC %md
