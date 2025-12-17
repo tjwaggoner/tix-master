@@ -1,0 +1,83 @@
+# Databricks Asset Bundle Configuration
+bundle:
+  name: tix-master
+  
+variables:
+  catalog_name:
+    description: Unity Catalog name
+    default: ticket_master
+  
+  bronze_schema:
+    description: Bronze schema name
+    default: bronze
+  
+  silver_schema:
+    description: Silver schema name
+    default: silver
+  
+  gold_schema:
+    description: Gold schema name
+    default: gold
+  
+  volume_path:
+    description: Volume path for raw data
+    default: /Volumes/ticket_master/bronze/raw_data
+
+# Include resource definitions
+include:
+  - resources/*.yml
+
+targets:
+  # Development target - deploys to your personal workspace
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+    
+    variables:
+      catalog_name: ticket_master
+      bronze_schema: ${workspace.current_user.short_name}_bronze
+      silver_schema: ${workspace.current_user.short_name}_silver
+      gold_schema: ${workspace.current_user.short_name}_gold
+    
+    # Use serverless compute for dev
+    compute_id: serverless
+    
+  # Staging target - for testing before production
+  staging:
+    mode: production
+    workspace:
+      host: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+      root_path: ~/.bundle/${bundle.name}/staging
+    
+    variables:
+      catalog_name: ticket_master
+      bronze_schema: staging_bronze
+      silver_schema: staging_silver
+      gold_schema: staging_gold
+    
+    run_as:
+      service_principal_name: "service-principal-staging"  # Update with your SP
+    
+  # Production target
+  prod:
+    mode: production
+    workspace:
+      host: https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com
+      root_path: ~/.bundle/${bundle.name}/prod
+    
+    variables:
+      catalog_name: ticket_master
+      bronze_schema: bronze
+      silver_schema: silver
+      gold_schema: gold
+    
+    run_as:
+      service_principal_name: "service-principal-prod"  # Update with your SP
+    
+    # Require approval for prod deployments
+    permissions:
+      - level: CAN_MANAGE
+        group_name: "admins"
+

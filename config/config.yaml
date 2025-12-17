@@ -7,13 +7,13 @@ databricks:
 
 # Unity Catalog Configuration
 unity_catalog:
-  catalog_name: "fevm_shared_catalog"
+  catalog_name: "ticket_master"
   schemas:
     bronze: "bronze"
     silver: "silver"
     gold: "gold"
   volume_name: "raw_data"
-  volume_path: "/Volumes/fevm_shared_catalog/bronze/raw_data"
+  volume_path: "/Volumes/ticket_master/bronze/raw_data"
 
 # Ticketmaster API Configuration
 ticketmaster_api:
