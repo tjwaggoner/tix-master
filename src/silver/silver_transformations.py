@@ -41,12 +41,95 @@ from delta.tables import DeltaTable
 # COMMAND ----------
 
 # Configuration
-CATALOG = "ticketmaster"
+CATALOG = "ticket_master"
 BRONZE_SCHEMA = "bronze"
 SILVER_SCHEMA = "silver"
 
+# Set catalog context to avoid Hive Metastore errors
+spark.sql(f"USE CATALOG {CATALOG}")
+print(f"✓ Using catalog: {spark.catalog.currentCatalog()}")
+
 # Create Silver schema
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SILVER_SCHEMA}")
+print(f"✓ Silver schema ready: {CATALOG}.{SILVER_SCHEMA}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Helper Functions
+
+# COMMAND ----------
+
+def add_primary_key_if_not_exists(table_name: str, constraint_name: str, pk_columns: list):
+    """
+    Add a primary key constraint if it doesn't already exist.
+    Also ensures the columns are set to NOT NULL first.
+    
+    Args:
+        table_name: Full table name (catalog.schema.table)
+        constraint_name: Name of the constraint
+        pk_columns: List of column names that make up the primary key
+    """
+    # Check if constraint already exists using information_schema
+    catalog, schema, table = table_name.split(".")
+    constraints = spark.sql(f"""
+        SELECT constraint_name
+        FROM {catalog}.information_schema.table_constraints
+        WHERE table_schema = '{schema}'
+          AND table_name = '{table}'
+          AND constraint_type = 'PRIMARY KEY'
+          AND constraint_name = '{constraint_name}'
+    """).collect()
+    
+    if constraints:
+        print(f"  ⚠️  Constraint '{constraint_name}' already exists on {table_name}, skipping")
+        return
+    
+    # Set columns as NOT NULL
+    for col_name in pk_columns:
+        try:
+            spark.sql(
+                f"ALTER TABLE {table_name} ALTER COLUMN {col_name} SET NOT NULL"
+            )
+        except Exception as e:
+            if "DELTA_COLUMN_ALREADY_NOT_NULLABLE" in str(e):
+                pass
+            else:
+                raise
+    
+    # Add primary key constraint with RELY
+    pk_cols_str = ", ".join(pk_columns)
+    spark.sql(
+        f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} PRIMARY KEY ({pk_cols_str}) RELY"
+    )
+    print(f"  ✓ Added constraint '{constraint_name}' on {table_name}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Check Bronze Tables Exist
+
+# COMMAND ----------
+
+# Verify bronze tables exist before processing
+required_tables = ['events_raw', 'venues_raw', 'attractions_raw', 'classifications_raw']
+missing_tables = []
+
+for table in required_tables:
+    full_table_name = f"{CATALOG}.{BRONZE_SCHEMA}.{table}"
+    if not spark.catalog.tableExists(full_table_name):
+        missing_tables.append(full_table_name)
+        print(f"⚠️  Missing: {full_table_name}")
+    else:
+        count = spark.table(full_table_name).count()
+        print(f"✓ Found: {full_table_name} ({count:,} records)")
+
+if missing_tables:
+    error_msg = f"Bronze tables not found: {', '.join(missing_tables)}. Run ingestion and bronze loader first."
+    print(f"\n❌ ERROR: {error_msg}")
+    dbutils.notebook.exit(error_msg)
+
+print("\n✓ All required bronze tables exist. Proceeding with silver transformations...")
 
 # COMMAND ----------
 
@@ -100,11 +183,8 @@ def create_silver_venues():
         .saveAsTable(silver_table)
     )
 
-    # Add primary key constraint
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT venues_pk PRIMARY KEY (venue_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "venues_pk", ["venue_id"])
 
     print(f"✓ Created {silver_table} with {silver_venues.count():,} records")
 
@@ -165,10 +245,8 @@ def create_silver_attractions():
         .saveAsTable(silver_table)
     )
 
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT attractions_pk PRIMARY KEY (attraction_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "attractions_pk", ["attraction_id"])
 
     print(f"✓ Created {silver_table} with {silver_attractions.count():,} records")
 
@@ -189,28 +267,88 @@ def create_silver_classifications():
     """
 
     bronze_classifications = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.classifications_raw")
-
-    silver_classifications = (
-        bronze_classifications
-        .select(
+    
+    # First, let's inspect the schema
+    print("  Bronze classifications schema:")
+    bronze_classifications.printSchema()
+    print(f"  Bronze classifications sample (first row):")
+    bronze_classifications.show(1, truncate=False, vertical=True)
+    
+    # Get available columns
+    available_cols = bronze_classifications.columns
+    print(f"  Available columns: {available_cols}")
+    
+    # Build select expression dynamically based on available columns
+    select_exprs = []
+    
+    # Check for nested segment structure
+    if "segment" in available_cols:
+        select_exprs.extend([
             col("segment.id").alias("segment_id"),
-            col("segment.name").alias("segment_name"),
+            col("segment.name").alias("segment_name")
+        ])
+    
+    # Check for nested genre structure  
+    if "genre" in available_cols:
+        select_exprs.extend([
             col("genre.id").alias("genre_id"),
-            col("genre.name").alias("genre_name"),
+            col("genre.name").alias("genre_name")
+        ])
+    
+    # Check for nested subGenre structure
+    if "subGenre" in available_cols:
+        select_exprs.extend([
             col("subGenre.id").alias("subgenre_id"),
-            col("subGenre.name").alias("subgenre_name"),
+            col("subGenre.name").alias("subgenre_name")
+        ])
+    
+    # Check for nested type structure
+    if "type" in available_cols:
+        select_exprs.extend([
             col("type.id").alias("type_id"),
-            col("type.name").alias("type_name"),
+            col("type.name").alias("type_name")
+        ])
+    
+    # Check for nested subType structure
+    if "subType" in available_cols:
+        select_exprs.extend([
             col("subType.id").alias("subtype_id"),
-            col("subType.name").alias("subtype_name"),
-            col("_ingestion_timestamp")
-        )
+            col("subType.name").alias("subtype_name")
+        ])
+    
+    # Check for family field
+    if "family" in available_cols:
+        select_exprs.append(col("family").cast("boolean").alias("is_family"))
+    
+    # Always include ingestion timestamp
+    if "_ingestion_timestamp" in available_cols:
+        select_exprs.append(col("_ingestion_timestamp"))
+    
+    if not select_exprs:
+        print("  ⚠️  No recognizable classification columns found!")
+        print("  Available columns:", available_cols)
+        raise ValueError("Cannot extract classifications - schema doesn't match expected structure")
+    
+    # First, create the base dataframe with selected columns
+    df_selected = bronze_classifications.select(*select_exprs)
+    
+    # Build the composite key based on available columns in the dataframe
+    available_key_cols = df_selected.columns
+    key_parts = []
+    
+    for key_col in ["segment_id", "genre_id", "subgenre_id", "type_id", "subtype_id"]:
+        if key_col in available_key_cols:
+            key_parts.append(coalesce(col(key_col), lit("")))
+    
+    if not key_parts:
+        raise ValueError("No valid key columns found for classification_id")
+    
+    print(f"  Using columns for classification_id: {[k for k in ['segment_id', 'genre_id', 'subgenre_id', 'type_id', 'subtype_id'] if k in available_key_cols]}")
+    
+    silver_classifications = (
+        df_selected
         # Create a composite key since classifications are hierarchical
-        .withColumn("classification_id",
-                    sha2(concat_ws("_",
-                                   coalesce(col("segment_id"), lit("")),
-                                   coalesce(col("genre_id"), lit("")),
-                                   coalesce(col("subgenre_id"), lit(""))), 256))
+        .withColumn("classification_id", sha2(concat_ws("_", *key_parts), 256))
         .dropDuplicates(["classification_id"])
         .filter(col("classification_id").isNotNull())
     )
@@ -225,12 +363,11 @@ def create_silver_classifications():
         .saveAsTable(silver_table)
     )
 
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT classifications_pk PRIMARY KEY (classification_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "classifications_pk", ["classification_id"])
 
-    print(f"✓ Created {silver_table} with {silver_classifications.count():,} records")
+    row_count = spark.table(silver_table).count()
+    print(f"✓ Created {silver_table} with {row_count:,} records")
 
 # COMMAND ----------
 
@@ -277,10 +414,8 @@ def create_silver_markets():
         .saveAsTable(silver_table)
     )
 
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT markets_pk PRIMARY KEY (market_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "markets_pk", ["market_id"])
 
     print(f"✓ Created {silver_table} with {silver_markets.count():,} records")
 
@@ -342,11 +477,8 @@ def create_silver_events():
         .saveAsTable(silver_table)
     )
 
-    # Add primary key
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT events_pk PRIMARY KEY (event_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "events_pk", ["event_id"])
 
     # Enable liquid clustering (Databricks Runtime 15.2+)
     # Clustering by event_date and status_code for efficient query patterns
@@ -399,11 +531,8 @@ def create_silver_event_venues():
         .saveAsTable(silver_table)
     )
 
-    # Add composite primary key
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT event_venues_pk PRIMARY KEY (event_id, venue_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "event_venues_pk", ["event_id", "venue_id"])
 
     # Add foreign key constraints
     spark.sql(f"""
@@ -462,11 +591,8 @@ def create_silver_event_attractions():
         .saveAsTable(silver_table)
     )
 
-    # Add composite primary key
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT event_attractions_pk PRIMARY KEY (event_id, attraction_id)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(silver_table, "event_attractions_pk", ["event_id", "attraction_id"])
 
     # Add foreign key constraints
     spark.sql(f"""
@@ -496,7 +622,7 @@ create_silver_event_attractions()
 
 # MAGIC %sql
 # MAGIC -- Show all silver tables
-# MAGIC SHOW TABLES IN ticketmaster.silver;
+# MAGIC SHOW TABLES IN ticket_master.silver;
 
 # COMMAND ----------
 
@@ -508,7 +634,7 @@ silver_tables = [
 
 for table in silver_tables:
     count = spark.table(f"{CATALOG}.{SILVER_SCHEMA}.{table}").count()
-    print(f"ticketmaster.silver.{table}: {count:,} records")
+    print(f"ticket_master.silver.{table}: {count:,} records")
 
 # COMMAND ----------
 
@@ -517,7 +643,7 @@ for table in silver_tables:
 # MAGIC
 # MAGIC Navigate to Unity Catalog UI:
 # MAGIC 1. Open Catalog Explorer
-# MAGIC 2. Select ticketmaster catalog
+# MAGIC 2. Select ticket_master catalog
 # MAGIC 3. Select silver schema
 # MAGIC 4. Click "Lineage" tab to see ERD visualization
 # MAGIC
@@ -527,7 +653,7 @@ for table in silver_tables:
 
 # MAGIC %sql
 # MAGIC -- View constraints for a table
-# MAGIC SHOW TBLPROPERTIES ticketmaster.silver.events;
+# MAGIC SHOW TBLPROPERTIES ticket_master.silver.events;
 
 # COMMAND ----------
 
@@ -541,11 +667,11 @@ for table in silver_tables:
 # MAGIC   v.city,
 # MAGIC   v.state,
 # MAGIC   a.attraction_name
-# MAGIC FROM ticketmaster.silver.events e
-# MAGIC INNER JOIN ticketmaster.silver.event_venues ev ON e.event_id = ev.event_id
-# MAGIC INNER JOIN ticketmaster.silver.venues v ON ev.venue_id = v.venue_id
-# MAGIC LEFT JOIN ticketmaster.silver.event_attractions ea ON e.event_id = ea.event_id
-# MAGIC LEFT JOIN ticketmaster.silver.attractions a ON ea.attraction_id = a.attraction_id
+# MAGIC FROM ticket_master.silver.events e
+# MAGIC INNER JOIN ticket_master.silver.event_venues ev ON e.event_id = ev.event_id
+# MAGIC INNER JOIN ticket_master.silver.venues v ON ev.venue_id = v.venue_id
+# MAGIC LEFT JOIN ticket_master.silver.event_attractions ea ON e.event_id = ea.event_id
+# MAGIC LEFT JOIN ticket_master.silver.attractions a ON ea.attraction_id = a.attraction_id
 # MAGIC WHERE e.event_date >= CURRENT_DATE()
 # MAGIC ORDER BY e.event_date
 # MAGIC LIMIT 20;
@@ -560,8 +686,8 @@ for table in silver_tables:
 # MAGIC %sql
 # MAGIC -- Check for orphaned records (should be 0)
 # MAGIC SELECT COUNT(*) as orphaned_event_venues
-# MAGIC FROM ticketmaster.silver.event_venues ev
-# MAGIC LEFT JOIN ticketmaster.silver.events e ON ev.event_id = e.event_id
+# MAGIC FROM ticket_master.silver.event_venues ev
+# MAGIC LEFT JOIN ticket_master.silver.events e ON ev.event_id = e.event_id
 # MAGIC WHERE e.event_id IS NULL;
 
 # COMMAND ----------
@@ -571,11 +697,11 @@ for table in silver_tables:
 # MAGIC SELECT
 # MAGIC   'events' as table_name,
 # MAGIC   COUNT(*) as null_pk_count
-# MAGIC FROM ticketmaster.silver.events
+# MAGIC FROM ticket_master.silver.events
 # MAGIC WHERE event_id IS NULL
 # MAGIC UNION ALL
 # MAGIC SELECT 'venues', COUNT(*)
-# MAGIC FROM ticketmaster.silver.venues
+# MAGIC FROM ticket_master.silver.venues
 # MAGIC WHERE venue_id IS NULL;
 
 # COMMAND ----------
@@ -587,17 +713,17 @@ for table in silver_tables:
 
 # MAGIC %sql
 # MAGIC -- Optimize all silver tables
-# MAGIC OPTIMIZE ticketmaster.silver.events;
-# MAGIC OPTIMIZE ticketmaster.silver.venues;
-# MAGIC OPTIMIZE ticketmaster.silver.attractions;
-# MAGIC OPTIMIZE ticketmaster.silver.classifications;
-# MAGIC OPTIMIZE ticketmaster.silver.markets;
-# MAGIC OPTIMIZE ticketmaster.silver.event_venues;
-# MAGIC OPTIMIZE ticketmaster.silver.event_attractions;
+# MAGIC OPTIMIZE ticket_master.silver.events;
+# MAGIC OPTIMIZE ticket_master.silver.venues;
+# MAGIC OPTIMIZE ticket_master.silver.attractions;
+# MAGIC OPTIMIZE ticket_master.silver.classifications;
+# MAGIC OPTIMIZE ticket_master.silver.markets;
+# MAGIC OPTIMIZE ticket_master.silver.event_venues;
+# MAGIC OPTIMIZE ticket_master.silver.event_attractions;
 
 # COMMAND ----------
 
 # MAGIC %sql
 # MAGIC -- Analyze tables for query optimization
-# MAGIC ANALYZE TABLE ticketmaster.silver.events COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticketmaster.silver.venues COMPUTE STATISTICS FOR ALL COLUMNS;
+# MAGIC ANALYZE TABLE ticket_master.silver.events COMPUTE STATISTICS FOR ALL COLUMNS;
+# MAGIC ANALYZE TABLE ticket_master.silver.venues COMPUTE STATISTICS FOR ALL COLUMNS;

@@ -6,17 +6,10 @@ resources:
     tix_master_etl_pipeline:
       name: "[${bundle.target}] Tix Master ETL Pipeline"
       
-      # Use serverless compute
-      job_clusters:
-        - job_cluster_key: main_cluster
-          new_cluster:
-            spark_version: "14.3.x-scala2.12"
-            node_type_id: "i3.xlarge"
-            num_workers: 2
-            spark_conf:
-              "spark.databricks.delta.preview.enabled": "true"
-              "spark.databricks.delta.optimizeWrite.enabled": "true"
-            data_security_mode: "USER_ISOLATION"
+      # Permissions
+      permissions:
+        - level: CAN_MANAGE
+          user_name: cassi.sullivan@databricks.com
       
       # Email notifications
       email_notifications:
@@ -29,68 +22,40 @@ resources:
         timezone_id: "America/Los_Angeles"
         pause_status: "UNPAUSED"
       
-      # Pipeline tasks
+      # No additional libraries needed - using serverless runtime built-ins
+      
+      # Pipeline tasks (using serverless compute)
       tasks:
-        # Task 1: Ingest data from Ticketmaster API
+        # Task 0: Ingest data from Ticketmaster API to Volume
         - task_key: ingest_ticketmaster_data
-          job_cluster_key: main_cluster
-          python_wheel_task:
-            package_name: "tix_master"
-            entry_point: "ticketmaster_ingestion"
-            parameters:
-              - "--catalog"
-              - "${var.catalog_name}"
-              - "--schema"
-              - "${var.bronze_schema}"
-              - "--volume_path"
-              - "${var.volume_path}"
-          libraries:
-            - pypi:
-                package: "requests"
-            - pypi:
-                package: "pyyaml"
+          notebook_task:
+            notebook_path: ../src/ingestion/ticketmaster_ingestion_notebook.py
           timeout_seconds: 3600
         
-        # Task 2: Load raw data to Bronze tables
+        # Task 1: Load raw data from Volume to Bronze tables
         - task_key: bronze_auto_loader
           depends_on:
             - task_key: ingest_ticketmaster_data
-          job_cluster_key: main_cluster
-          spark_python_task:
-            python_file: ../src/bronze/bronze_auto_loader.py
-            parameters:
-              - "--catalog"
-              - "${var.catalog_name}"
-              - "--bronze_schema"
-              - "${var.bronze_schema}"
-              - "--volume_path"
-              - "${var.volume_path}"
-          libraries:
-            - pypi:
-                package: "pyyaml"
+          notebook_task:
+            notebook_path: ../src/bronze/bronze_auto_loader.py
           timeout_seconds: 3600
         
         # Task 3: Transform data to Silver tables
         - task_key: silver_transformations
           depends_on:
             - task_key: bronze_auto_loader
-          job_cluster_key: main_cluster
-          spark_python_task:
-            python_file: ../src/silver/silver_transformations.py
-            parameters:
-              - "--catalog"
-              - "${var.catalog_name}"
-              - "--bronze_schema"
-              - "${var.bronze_schema}"
-              - "--silver_schema"
-              - "${var.silver_schema}"
+          notebook_task:
+            notebook_path: ../src/silver/silver_transformations.py
+            base_parameters:
+              catalog: "${var.catalog_name}"
+              bronze_schema: "${var.bronze_schema}"
+              silver_schema: "${var.silver_schema}"
           timeout_seconds: 3600
         
         # Task 4: Run data quality checks
         - task_key: data_quality_checks
           depends_on:
             - task_key: silver_transformations
-          job_cluster_key: main_cluster
           sql_task:
             file:
               path: ../sql/stored_procedures/sp_data_quality_checks.sql
@@ -101,23 +66,18 @@ resources:
         - task_key: gold_star_schema
           depends_on:
             - task_key: data_quality_checks
-          job_cluster_key: main_cluster
-          spark_python_task:
-            python_file: ../src/gold/gold_star_schema.py
-            parameters:
-              - "--catalog"
-              - "${var.catalog_name}"
-              - "--silver_schema"
-              - "${var.silver_schema}"
-              - "--gold_schema"
-              - "${var.gold_schema}"
+          notebook_task:
+            notebook_path: ../src/gold/gold_star_schema.py
+            base_parameters:
+              catalog: "${var.catalog_name}"
+              silver_schema: "${var.silver_schema}"
+              gold_schema: "${var.gold_schema}"
           timeout_seconds: 3600
         
         # Task 6: Refresh Gold layer (stored procedure)
         - task_key: refresh_gold_layer
           depends_on:
             - task_key: gold_star_schema
-          job_cluster_key: main_cluster
           sql_task:
             file:
               path: ../sql/stored_procedures/sp_refresh_gold_layer.sql
@@ -128,7 +88,6 @@ resources:
         - task_key: generate_event_summary
           depends_on:
             - task_key: refresh_gold_layer
-          job_cluster_key: main_cluster
           sql_task:
             file:
               path: ../sql/stored_procedures/sp_generate_event_summary.sql
@@ -139,83 +98,19 @@ resources:
       max_concurrent_runs: 1
       timeout_seconds: 14400  # 4 hours
     
-    # One-time setup job
-    tix_master_setup:
-      name: "[${bundle.target}] Tix Master Setup"
+    # Manual Bronze layer refresh (for testing)
+    tix_master_bronze_refresh:
+      name: "[${bundle.target}] Tix Master Bronze Refresh"
       
-      job_clusters:
-        - job_cluster_key: setup_cluster
-          new_cluster:
-            spark_version: "14.3.x-scala2.12"
-            node_type_id: "i3.xlarge"
-            num_workers: 1
-            data_security_mode: "USER_ISOLATION"
+      # Permissions
+      permissions:
+        - level: CAN_MANAGE
+          user_name: cassi.sullivan@databricks.com
       
       tasks:
-        # Create ETL log table
-        - task_key: create_etl_log_table
-          job_cluster_key: setup_cluster
-          sql_task:
-            file:
-              path: ../sql/ddl/create_etl_log.sql
-            warehouse_id: "${var.warehouse_id}"
-        
-        # Initialize schemas
-        - task_key: initialize_schemas
-          depends_on:
-            - task_key: create_etl_log_table
-          job_cluster_key: setup_cluster
-          spark_python_task:
-            python_file: ../src/bronze/bronze_auto_loader.py
-            parameters:
-              - "--catalog"
-              - "${var.catalog_name}"
-              - "--bronze_schema"
-              - "${var.bronze_schema}"
-              - "--setup_only"
-              - "true"
+        - task_key: refresh_bronze
+          notebook_task:
+            notebook_path: ../src/bronze/bronze_auto_loader.py
       
       max_concurrent_runs: 1
       timeout_seconds: 3600
-    
-    # Ad-hoc ingestion job (manual trigger)
-    tix_master_adhoc_ingestion:
-      name: "[${bundle.target}] Tix Master Ad-hoc Ingestion"
-      
-      job_clusters:
-        - job_cluster_key: adhoc_cluster
-          new_cluster:
-            spark_version: "14.3.x-scala2.12"
-            node_type_id: "i3.xlarge"
-            num_workers: 1
-            data_security_mode: "USER_ISOLATION"
-      
-      tasks:
-        - task_key: adhoc_ingest
-          job_cluster_key: adhoc_cluster
-          python_wheel_task:
-            package_name: "tix_master"
-            entry_point: "ticketmaster_ingestion"
-            parameters:
-              - "--catalog"
-              - "${var.catalog_name}"
-              - "--schema"
-              - "${var.bronze_schema}"
-              - "--volume_path"
-              - "${var.volume_path}"
-          libraries:
-            - pypi:
-                package: "requests"
-            - pypi:
-                package: "pyyaml"
-      
-      # Job parameters that can be overridden at runtime
-      parameters:
-        - name: event_type
-          default: "all"
-        - name: market_id
-          default: ""
-      
-      max_concurrent_runs: 3
-      timeout_seconds: 7200
-

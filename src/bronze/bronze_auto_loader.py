@@ -24,11 +24,10 @@ It reads raw JSON files and writes them to structured Delta tables with minimal 
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    current_timestamp, input_file_name, col, to_date,
+    current_timestamp, col, to_date,
     explode, when, lit
 )
 from pyspark.sql.types import *
-import yaml
 
 # COMMAND ----------
 
@@ -37,12 +36,30 @@ import yaml
 
 # COMMAND ----------
 
-# Configuration
-CATALOG = "ticketmaster"
+# Configuration (use these values directly)
+CATALOG = "ticket_master"
 BRONZE_SCHEMA = "bronze"
+
+print(f"Using: {CATALOG}.{BRONZE_SCHEMA}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Set Unity Catalog Context
+
+# COMMAND ----------
+
+# CRITICAL: Set the current catalog to avoid Hive Metastore errors
+spark.sql(f"USE CATALOG {CATALOG}")
+print(f"✓ Using catalog: {spark.catalog.currentCatalog()}")
+
+# COMMAND ----------
+
+# Volume and checkpoint configuration
 VOLUME_NAME = "raw_data"
 VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/{VOLUME_NAME}"
-CHECKPOINT_BASE = "/tmp/checkpoints/bronze"
+# IMPORTANT: Use Unity Catalog volume for checkpoints (DBFS root /tmp is disabled)
+CHECKPOINT_BASE = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/{VOLUME_NAME}/_checkpoints"
 
 # Entity configurations
 ENTITIES = [
@@ -75,25 +92,16 @@ ENTITIES = [
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Unity Catalog Setup
+# MAGIC ## Setup Bronze Layer
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Create catalog if not exists
-# MAGIC CREATE CATALOG IF NOT EXISTS ticketmaster;
+# Use the catalog and create schema/volume if needed
+spark.sql(f"USE CATALOG {CATALOG}")
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{BRONZE_SCHEMA}")
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{BRONZE_SCHEMA}.{VOLUME_NAME}")
 
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Create bronze schema
-# MAGIC CREATE SCHEMA IF NOT EXISTS ticketmaster.bronze;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Create volume for raw data
-# MAGIC CREATE VOLUME IF NOT EXISTS ticketmaster.bronze.raw_data;
+print(f"✓ Bronze layer ready: {CATALOG}.{BRONZE_SCHEMA}")
 
 # COMMAND ----------
 
@@ -104,7 +112,7 @@ ENTITIES = [
 
 def create_bronze_stream(entity_config):
     """
-    Create an Auto Loader streaming query for a given entity
+    Create an Auto Loader streaming query for a given entity with deduplication
 
     Args:
         entity_config: Dictionary with entity configuration
@@ -121,33 +129,38 @@ def create_bronze_stream(entity_config):
     print(f"  Source: {source_path}")
     print(f"  Target: {table_name}")
 
-    # Read JSON files using Auto Loader
+    # Read JSON files using Auto Loader (reads recursively from subdirectories)
+    # Ticketmaster API returns events with varying fields (e.g., sales.presales may or may not exist)
+    # Using addNewColumns mode: fails on new fields, then auto-adds them on retry
     df = (
         spark.readStream
         .format("cloudFiles")
         .option("cloudFiles.format", "json")
         .option("cloudFiles.schemaLocation", f"{checkpoint_path}/schema")
         .option("cloudFiles.inferColumnTypes", "true")
-        .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
+        .option("cloudFiles.schemaEvolutionMode", "addNewColumns")  # Auto-evolve schema
+        .option("cloudFiles.useIncrementalListing", "auto")  # Optimized for directory listing
+        .option("recursiveFileLookup", "true")  # Scan subdirectories (YYYY/MM/DD structure)
         .option("multiLine", "true")  # Handle multi-line JSON
         .load(source_path)
     )
 
-    # Add metadata columns
+    # Add metadata columns (using Unity Catalog metadata)
     df_with_metadata = (
         df
         .withColumn("_ingestion_timestamp", current_timestamp())
-        .withColumn("_source_file", input_file_name())
+        .withColumn("_source_file", col("_metadata.file_path"))  # Unity Catalog compatible
         .withColumn("_ingestion_date", to_date(current_timestamp()))
     )
 
-    # Write to Bronze Delta table with streaming
-    # Using ingestion time clustering (automatic in DBR 11.3+) instead of partitioning
+    # Write to Bronze Delta table with streaming (append mode for raw data)
+    # Bronze layer keeps all raw data; deduplication happens in Silver layer
     query = (
         df_with_metadata.writeStream
         .format("delta")
+        .outputMode("append")
         .option("checkpointLocation", checkpoint_path)
-        .option("mergeSchema", "true")
+        .option("mergeSchema", "true")  # Allow schema evolution
         .trigger(availableNow=True)  # Process all available files then stop
         .table(table_name)
     )
@@ -164,27 +177,28 @@ def create_bronze_stream(entity_config):
 # Create and start streaming queries for all entities
 streaming_queries = []
 
+print("Starting Auto Loader streams...")
 for entity_config in ENTITIES:
     try:
         query = create_bronze_stream(entity_config)
         streaming_queries.append(query)
-        print(f"✓ Started streaming for {entity_config['name']}")
+        print(f"  ✓ {entity_config['name']}")
     except Exception as e:
-        print(f"✗ Error setting up stream for {entity_config['name']}: {str(e)}")
+        print(f"  ✗ {entity_config['name']}: {str(e)}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Wait for Completion (Batch Mode)
+# MAGIC ## Wait for Completion
 
 # COMMAND ----------
 
-# Wait for all streams to complete (when using trigger.availableNow)
+# Wait for all streams to complete
 for query in streaming_queries:
     query.awaitTermination()
-    print(f"Stream {query.name} completed")
 
-print("All Bronze layer streams completed successfully!")
+print(f"\n✓ Bronze layer processing complete!")
+print(f"✓ Loaded {len(streaming_queries)} entities to {CATALOG}.{BRONZE_SCHEMA}")
 
 # COMMAND ----------
 
@@ -193,34 +207,27 @@ print("All Bronze layer streams completed successfully!")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- Show all bronze tables
-# MAGIC SHOW TABLES IN ticketmaster.bronze;
+# Show all bronze tables
+print(f"\nTables in {CATALOG}.{BRONZE_SCHEMA}:")
+try:
+    spark.sql(f"SHOW TABLES IN {CATALOG}.{BRONZE_SCHEMA}").show()
+except Exception as e:
+    print(f"  Schema not yet created: {e}")
 
 # COMMAND ----------
 
 # Check record counts for each table
+print("\nRecord counts:")
 for entity_config in ENTITIES:
     table_name = entity_config["table_name"]
-    count = spark.table(table_name).count()
-    print(f"{table_name}: {count:,} records")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Sample Data Inspection
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Sample events data
-# MAGIC SELECT * FROM ticketmaster.bronze.events_raw LIMIT 5;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Sample venues data
-# MAGIC SELECT * FROM ticketmaster.bronze.venues_raw LIMIT 5;
+    try:
+        if spark.catalog.tableExists(table_name):
+            count = spark.table(table_name).count()
+            print(f"  ✓ {table_name}: {count:,} records")
+        else:
+            print(f"  - {table_name}: Not yet created (no data in volume)")
+    except Exception as e:
+        print(f"  - {table_name}: Not accessible")
 
 # COMMAND ----------
 
@@ -281,32 +288,4 @@ def create_continuous_bronze_stream(entity_config):
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Monitoring and Maintenance
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Check table properties
-# MAGIC DESCRIBE EXTENDED ticketmaster.bronze.events_raw;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- View table history
-# MAGIC DESCRIBE HISTORY ticketmaster.bronze.events_raw;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Optimize tables (run periodically)
-# MAGIC OPTIMIZE ticketmaster.bronze.events_raw;
-# MAGIC OPTIMIZE ticketmaster.bronze.venues_raw;
-# MAGIC OPTIMIZE ticketmaster.bronze.attractions_raw;
-# MAGIC OPTIMIZE ticketmaster.bronze.classifications_raw;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Vacuum old files (run periodically, e.g., weekly)
-# MAGIC VACUUM ticketmaster.bronze.events_raw RETAIN 168 HOURS;  -- 7 days
+print("\n✓ Bronze layer ready for downstream processing!")

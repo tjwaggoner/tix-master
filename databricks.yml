@@ -19,9 +19,9 @@ variables:
     description: Gold schema name
     default: gold
   
-  volume_path:
-    description: Volume path for raw data
-    default: /Volumes/ticket_master/bronze/raw_data
+  warehouse_id:
+    description: SQL Warehouse ID for SQL tasks
+    default: "f4040a30fe978741"  # Serverless Starter Warehouse
 
 # Include resource definitions
 include:
@@ -37,12 +37,9 @@ targets:
     
     variables:
       catalog_name: ticket_master
-      bronze_schema: ${workspace.current_user.short_name}_bronze
-      silver_schema: ${workspace.current_user.short_name}_silver
-      gold_schema: ${workspace.current_user.short_name}_gold
-    
-    # Use serverless compute for dev
-    compute_id: serverless
+      bronze_schema: bronze
+      silver_schema: silver
+      gold_schema: gold
     
   # Staging target - for testing before production
   staging:

@@ -18,11 +18,19 @@ This guide covers deploying and managing the Tix Master pipeline using Databrick
    - Host: `https://fe-vm-tw-vdm-serverless-tixsfe.cloud.databricks.com`
    - Token: Your personal access token (create one in Databricks UI: Settings > User Settings > Access Tokens)
 
-3. **Set Environment Variables**
-   Create a `.env` file in the project root:
+3. **Set Up Databricks Secrets**
+   Configure your Ticketmaster API key:
    ```bash
-   TICKETMASTER_API_KEY=your_api_key_here
+   # Create secret scope
+   databricks secrets create-scope tix-master
+   
+   # Add API key (opens editor to paste your key)
+   databricks secrets put-secret tix-master ticketmaster-api-key
    ```
+   
+   Get your API key from: https://developer.ticketmaster.com/
+   
+   See `SECRETS_SETUP.md` for detailed instructions.
 
 ## Quick Start - Deploy from IDE
 
@@ -47,11 +55,8 @@ This will:
 ### 3. Run Your Pipeline
 After deployment, trigger the ETL pipeline:
 ```bash
-# Run the main ETL pipeline
+# Run the main ETL pipeline (includes automatic setup on first run)
 databricks bundle run tix_master_etl_pipeline
-
-# Or run the setup job first (first time only)
-databricks bundle run tix_master_setup
 ```
 
 ### 4. Monitor Job Runs
@@ -135,11 +140,8 @@ This keeps your workspace files in sync with local changes without full redeploy
 
 To run a specific task instead of the full pipeline:
 ```bash
-# Just ingest new data
-databricks bundle run tix_master_adhoc_ingestion
-
-# Setup/initialize only
-databricks bundle run tix_master_setup
+# Just refresh bronze layer
+databricks bundle run tix_master_bronze_refresh
 ```
 
 ### View Job Configuration
@@ -262,18 +264,15 @@ Edit `databricks.yml` to customize:
 
 ## Next Steps
 
-1. **First time setup:**
+1. **Deploy and run:**
    ```bash
    databricks bundle deploy
-   databricks bundle run tix_master_setup
-   ```
-
-2. **Run the pipeline:**
-   ```bash
    databricks bundle run tix_master_etl_pipeline
    ```
+   
+   The pipeline automatically handles setup on the first run!
 
-3. **View results in Databricks:**
+2. **View results in Databricks:**
    - Check Unity Catalog for your tables
    - Query data in SQL Editor
    - View job runs in Workflows

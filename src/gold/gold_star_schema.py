@@ -45,12 +45,17 @@ from datetime import datetime, timedelta
 
 # COMMAND ----------
 
-CATALOG = "ticketmaster"
+CATALOG = "ticket_master"
 SILVER_SCHEMA = "silver"
 GOLD_SCHEMA = "gold"
 
+# Set catalog context to avoid Hive Metastore errors
+spark.sql(f"USE CATALOG {CATALOG}")
+print(f"✓ Using catalog: {spark.catalog.currentCatalog()}")
+
 # Create Gold schema
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{GOLD_SCHEMA}")
+print(f"✓ Gold schema ready: {CATALOG}.{GOLD_SCHEMA}")
 
 # COMMAND ----------
 
@@ -117,7 +122,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create dim_venue with IDENTITY surrogate key
-# MAGIC CREATE OR REPLACE TABLE ticketmaster.gold.dim_venue (
+# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_venue (
 # MAGIC   venue_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   venue_id STRING NOT NULL,
 # MAGIC   venue_name STRING,
@@ -143,7 +148,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Populate dim_venue from Silver
-# MAGIC INSERT INTO ticketmaster.gold.dim_venue (
+# MAGIC INSERT INTO ticket_master.gold.dim_venue (
 # MAGIC   venue_id, venue_name, venue_type, city, state, state_code,
 # MAGIC   country, country_code, postal_code, address_line1,
 # MAGIC   latitude, longitude, timezone, venue_url,
@@ -167,7 +172,7 @@ create_dim_date()
 # MAGIC   _ingestion_timestamp as valid_from,
 # MAGIC   CAST(NULL AS TIMESTAMP) as valid_to,
 # MAGIC   TRUE as is_current
-# MAGIC FROM ticketmaster.silver.venues;
+# MAGIC FROM ticket_master.silver.venues;
 
 # COMMAND ----------
 
@@ -178,7 +183,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create dim_attraction with IDENTITY surrogate key
-# MAGIC CREATE OR REPLACE TABLE ticketmaster.gold.dim_attraction (
+# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_attraction (
 # MAGIC   attraction_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   attraction_id STRING NOT NULL,
 # MAGIC   attraction_name STRING,
@@ -199,7 +204,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Populate dim_attraction
-# MAGIC INSERT INTO ticketmaster.gold.dim_attraction (
+# MAGIC INSERT INTO ticket_master.gold.dim_attraction (
 # MAGIC   attraction_id, attraction_name, attraction_type,
 # MAGIC   segment_id, segment_name, genre_id, genre_name,
 # MAGIC   attraction_url, is_test,
@@ -218,7 +223,7 @@ create_dim_date()
 # MAGIC   _ingestion_timestamp as valid_from,
 # MAGIC   CAST(NULL AS TIMESTAMP) as valid_to,
 # MAGIC   TRUE as is_current
-# MAGIC FROM ticketmaster.silver.attractions;
+# MAGIC FROM ticket_master.silver.attractions;
 
 # COMMAND ----------
 
@@ -229,7 +234,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create dim_classification
-# MAGIC CREATE OR REPLACE TABLE ticketmaster.gold.dim_classification (
+# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_classification (
 # MAGIC   classification_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   classification_id STRING NOT NULL,
 # MAGIC   segment_id STRING,
@@ -249,7 +254,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Populate dim_classification
-# MAGIC INSERT INTO ticketmaster.gold.dim_classification
+# MAGIC INSERT INTO ticket_master.gold.dim_classification
 # MAGIC SELECT
 # MAGIC   DEFAULT,  -- Use DEFAULT for IDENTITY column
 # MAGIC   classification_id,
@@ -263,7 +268,7 @@ create_dim_date()
 # MAGIC   type_name,
 # MAGIC   subtype_id,
 # MAGIC   subtype_name
-# MAGIC FROM ticketmaster.silver.classifications;
+# MAGIC FROM ticket_master.silver.classifications;
 
 # COMMAND ----------
 
@@ -274,7 +279,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create dim_market
-# MAGIC CREATE OR REPLACE TABLE ticketmaster.gold.dim_market (
+# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_market (
 # MAGIC   market_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   market_id STRING NOT NULL,
 # MAGIC   market_name STRING,
@@ -285,12 +290,12 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Populate dim_market
-# MAGIC INSERT INTO ticketmaster.gold.dim_market
+# MAGIC INSERT INTO ticket_master.gold.dim_market
 # MAGIC SELECT
 # MAGIC   DEFAULT,
 # MAGIC   market_id,
 # MAGIC   market_name
-# MAGIC FROM ticketmaster.silver.markets;
+# MAGIC FROM ticket_master.silver.markets;
 
 # COMMAND ----------
 
@@ -302,7 +307,7 @@ create_dim_date()
 # MAGIC %sql
 # MAGIC -- Create fact_events with foreign keys to dimensions and liquid clustering
 # MAGIC -- Using liquid clustering (DBR 15.2+) instead of partitioning for better performance
-# MAGIC CREATE OR REPLACE TABLE ticketmaster.gold.fact_events (
+# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   event_name STRING,
@@ -324,11 +329,11 @@ create_dim_date()
 # MAGIC   event_url STRING,
 # MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
 # MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_key)
-# MAGIC     REFERENCES ticketmaster.gold.dim_date(date_key),
+# MAGIC     REFERENCES ticket_master.gold.dim_date(date_key),
 # MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk)
-# MAGIC     REFERENCES ticketmaster.gold.dim_venue(venue_sk),
+# MAGIC     REFERENCES ticket_master.gold.dim_venue(venue_sk),
 # MAGIC   CONSTRAINT fact_events_attraction_fk FOREIGN KEY (attraction_sk)
-# MAGIC     REFERENCES ticketmaster.gold.dim_attraction(attraction_sk)
+# MAGIC     REFERENCES ticket_master.gold.dim_attraction(attraction_sk)
 # MAGIC )
 # MAGIC CLUSTER BY (event_date_key, venue_sk);
 
@@ -336,7 +341,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Populate fact_events with dimension lookups
-# MAGIC INSERT INTO ticketmaster.gold.fact_events
+# MAGIC INSERT INTO ticket_master.gold.fact_events
 # MAGIC SELECT
 # MAGIC   DEFAULT as event_sk,
 # MAGIC   e.event_id,
@@ -357,11 +362,11 @@ create_dim_date()
 # MAGIC   e.sales_end_datetime,
 # MAGIC   e.is_test,
 # MAGIC   e.event_url
-# MAGIC FROM ticketmaster.silver.events e
-# MAGIC LEFT JOIN ticketmaster.silver.event_venues ev ON e.event_id = ev.event_id
-# MAGIC LEFT JOIN ticketmaster.gold.dim_venue dv ON ev.venue_id = dv.venue_id AND dv.is_current = TRUE
-# MAGIC LEFT JOIN ticketmaster.silver.event_attractions ea ON e.event_id = ea.event_id
-# MAGIC LEFT JOIN ticketmaster.gold.dim_attraction da ON ea.attraction_id = da.attraction_id AND da.is_current = TRUE;
+# MAGIC FROM ticket_master.silver.events e
+# MAGIC LEFT JOIN ticket_master.silver.event_venues ev ON e.event_id = ev.event_id
+# MAGIC LEFT JOIN ticket_master.gold.dim_venue dv ON ev.venue_id = dv.venue_id AND dv.is_current = TRUE
+# MAGIC LEFT JOIN ticket_master.silver.event_attractions ea ON e.event_id = ea.event_id
+# MAGIC LEFT JOIN ticket_master.gold.dim_attraction da ON ea.attraction_id = da.attraction_id AND da.is_current = TRUE;
 
 # COMMAND ----------
 
@@ -372,7 +377,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create materialized view: Events by Date and Venue
-# MAGIC CREATE OR REPLACE VIEW ticketmaster.gold.mv_events_by_date_venue AS
+# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.mv_events_by_date_venue AS
 # MAGIC SELECT
 # MAGIC   d.date_value,
 # MAGIC   d.year,
@@ -387,9 +392,9 @@ create_dim_date()
 # MAGIC   AVG(f.price_min) as avg_price_min,
 # MAGIC   AVG(f.price_max) as avg_price_max,
 # MAGIC   MIN(f.sales_start_datetime) as earliest_sale_start
-# MAGIC FROM ticketmaster.gold.fact_events f
-# MAGIC INNER JOIN ticketmaster.gold.dim_date d ON f.event_date_key = d.date_key
-# MAGIC INNER JOIN ticketmaster.gold.dim_venue v ON f.venue_sk = v.venue_sk
+# MAGIC FROM ticket_master.gold.fact_events f
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
 # MAGIC GROUP BY
 # MAGIC   d.date_value, d.year, d.month, d.month_name, d.day_name,
 # MAGIC   v.city, v.state, v.country;
@@ -398,7 +403,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create materialized view: Events by Attraction Type
-# MAGIC CREATE OR REPLACE VIEW ticketmaster.gold.mv_events_by_attraction AS
+# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.mv_events_by_attraction AS
 # MAGIC SELECT
 # MAGIC   a.attraction_name,
 # MAGIC   a.attraction_type,
@@ -410,10 +415,10 @@ create_dim_date()
 # MAGIC   MIN(d.date_value) as first_event_date,
 # MAGIC   MAX(d.date_value) as last_event_date,
 # MAGIC   AVG(f.price_max) as avg_max_price
-# MAGIC FROM ticketmaster.gold.fact_events f
-# MAGIC INNER JOIN ticketmaster.gold.dim_attraction a ON f.attraction_sk = a.attraction_sk
-# MAGIC INNER JOIN ticketmaster.gold.dim_venue v ON f.venue_sk = v.venue_sk
-# MAGIC INNER JOIN ticketmaster.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC FROM ticket_master.gold.fact_events f
+# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk = a.attraction_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
 # MAGIC GROUP BY
 # MAGIC   a.attraction_name, a.attraction_type, a.segment_name, a.genre_name;
 
@@ -421,7 +426,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create materialized view: Monthly Event Summary
-# MAGIC CREATE OR REPLACE VIEW ticketmaster.gold.mv_monthly_summary AS
+# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.mv_monthly_summary AS
 # MAGIC SELECT
 # MAGIC   d.year,
 # MAGIC   d.month,
@@ -434,8 +439,8 @@ create_dim_date()
 # MAGIC   AVG(f.price_max) as avg_max_price,
 # MAGIC   COUNT(DISTINCT CASE WHEN d.is_weekend THEN f.event_id END) as weekend_events,
 # MAGIC   COUNT(DISTINCT CASE WHEN NOT d.is_weekend THEN f.event_id END) as weekday_events
-# MAGIC FROM ticketmaster.gold.fact_events f
-# MAGIC INNER JOIN ticketmaster.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC FROM ticket_master.gold.fact_events f
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
 # MAGIC GROUP BY
 # MAGIC   d.year, d.month, d.month_name, d.quarter;
 
@@ -448,7 +453,7 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Show all gold tables
-# MAGIC SHOW TABLES IN ticketmaster.gold;
+# MAGIC SHOW TABLES IN ticket_master.gold;
 
 # COMMAND ----------
 
@@ -461,9 +466,9 @@ gold_tables = [
 for table in gold_tables:
     try:
         count = spark.table(f"{CATALOG}.{GOLD_SCHEMA}.{table}").count()
-        print(f"ticketmaster.gold.{table}: {count:,} records")
+        print(f"ticket_master.gold.{table}: {count:,} records")
     except:
-        print(f"ticketmaster.gold.{table}: Not found")
+        print(f"ticket_master.gold.{table}: Not found")
 
 # COMMAND ----------
 
@@ -485,10 +490,10 @@ for table in gold_tables:
 # MAGIC   AVG(f.price_max) as avg_max_price,
 # MAGIC   MIN(f.event_datetime) as first_event,
 # MAGIC   MAX(f.event_datetime) as last_event
-# MAGIC FROM ticketmaster.gold.fact_events f
-# MAGIC INNER JOIN ticketmaster.gold.dim_date d ON f.event_date_key = d.date_key
-# MAGIC INNER JOIN ticketmaster.gold.dim_venue v ON f.venue_sk = v.venue_sk
-# MAGIC LEFT JOIN ticketmaster.gold.dim_attraction a ON f.attraction_sk = a.attraction_sk
+# MAGIC FROM ticket_master.gold.fact_events f
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
+# MAGIC LEFT JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk = a.attraction_sk
 # MAGIC WHERE d.year = YEAR(CURRENT_DATE())
 # MAGIC   AND v.country = 'United States'
 # MAGIC   AND f.is_test = FALSE
@@ -511,8 +516,8 @@ for table in gold_tables:
 # MAGIC SELECT
 # MAGIC   v.venue_name,
 # MAGIC   COUNT(*) as event_count
-# MAGIC FROM ticketmaster.gold.fact_events f
-# MAGIC INNER JOIN ticketmaster.gold.dim_venue v ON f.venue_sk = v.venue_sk
+# MAGIC FROM ticket_master.gold.fact_events f
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
 # MAGIC GROUP BY v.venue_name;
 
 # COMMAND ----------
@@ -525,24 +530,24 @@ for table in gold_tables:
 # MAGIC %sql
 # MAGIC -- Optimize fact table (liquid clustering handles layout automatically)
 # MAGIC -- No ZORDER needed with liquid clustering
-# MAGIC OPTIMIZE ticketmaster.gold.fact_events;
+# MAGIC OPTIMIZE ticket_master.gold.fact_events;
 
 # COMMAND ----------
 
 # MAGIC %sql
 # MAGIC -- Optimize dimensions
-# MAGIC OPTIMIZE ticketmaster.gold.dim_venue;
-# MAGIC OPTIMIZE ticketmaster.gold.dim_attraction;
-# MAGIC OPTIMIZE ticketmaster.gold.dim_date;
+# MAGIC OPTIMIZE ticket_master.gold.dim_venue;
+# MAGIC OPTIMIZE ticket_master.gold.dim_attraction;
+# MAGIC OPTIMIZE ticket_master.gold.dim_date;
 
 # COMMAND ----------
 
 # MAGIC %sql
 # MAGIC -- Analyze tables for cost-based optimizer
-# MAGIC ANALYZE TABLE ticketmaster.gold.fact_events COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticketmaster.gold.dim_venue COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticketmaster.gold.dim_attraction COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticketmaster.gold.dim_date COMPUTE STATISTICS FOR ALL COLUMNS;
+# MAGIC ANALYZE TABLE ticket_master.gold.fact_events COMPUTE STATISTICS FOR ALL COLUMNS;
+# MAGIC ANALYZE TABLE ticket_master.gold.dim_venue COMPUTE STATISTICS FOR ALL COLUMNS;
+# MAGIC ANALYZE TABLE ticket_master.gold.dim_attraction COMPUTE STATISTICS FOR ALL COLUMNS;
+# MAGIC ANALYZE TABLE ticket_master.gold.dim_date COMPUTE STATISTICS FOR ALL COLUMNS;
 
 # COMMAND ----------
 
