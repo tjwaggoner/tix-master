@@ -568,18 +568,22 @@ def create_silver_event_venues():
     # Add primary key constraint (if not exists)
     add_primary_key_if_not_exists(silver_table, "event_venues_pk", ["event_id", "venue_id"])
 
-    # Add foreign key constraints
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT event_venues_event_fk
-        FOREIGN KEY (event_id) REFERENCES {CATALOG}.{SILVER_SCHEMA}.events(event_id)
-    """)
-
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT event_venues_venue_fk
-        FOREIGN KEY (venue_id) REFERENCES {CATALOG}.{SILVER_SCHEMA}.venues(venue_id)
-    """)
+    # Add foreign key constraints (if not exist)
+    add_foreign_key_if_not_exists(
+        table_name=silver_table,
+        constraint_name="event_venues_event_fk",
+        fk_columns=["event_id"],
+        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
+        reference_columns=["event_id"]
+    )
+    
+    add_foreign_key_if_not_exists(
+        table_name=silver_table,
+        constraint_name="event_venues_venue_fk",
+        fk_columns=["venue_id"],
+        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.venues",
+        reference_columns=["venue_id"]
+    )
 
     print(f"✓ Created {silver_table} with {event_venues.count():,} records")
 
@@ -628,18 +632,22 @@ def create_silver_event_attractions():
     # Add primary key constraint (if not exists)
     add_primary_key_if_not_exists(silver_table, "event_attractions_pk", ["event_id", "attraction_id"])
 
-    # Add foreign key constraints
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT event_attractions_event_fk
-        FOREIGN KEY (event_id) REFERENCES {CATALOG}.{SILVER_SCHEMA}.events(event_id)
-    """)
-
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        ADD CONSTRAINT event_attractions_attraction_fk
-        FOREIGN KEY (attraction_id) REFERENCES {CATALOG}.{SILVER_SCHEMA}.attractions(attraction_id)
-    """)
+    # Add foreign key constraints (if not exist)
+    add_foreign_key_if_not_exists(
+        table_name=silver_table,
+        constraint_name="event_attractions_event_fk",
+        fk_columns=["event_id"],
+        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
+        reference_columns=["event_id"]
+    )
+    
+    add_foreign_key_if_not_exists(
+        table_name=silver_table,
+        constraint_name="event_attractions_attraction_fk",
+        fk_columns=["attraction_id"],
+        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.attractions",
+        reference_columns=["attraction_id"]
+    )
 
     print(f"✓ Created {silver_table} with {event_attractions.count():,} records")
 
@@ -682,82 +690,3 @@ for table in silver_tables:
 # MAGIC 4. Click "Lineage" tab to see ERD visualization
 # MAGIC
 # MAGIC The PK/FK constraints enable Unity Catalog to automatically generate the ERD!
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- View constraints for a table
-# MAGIC SHOW TBLPROPERTIES ticket_master.silver.events;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Example query using FK relationships
-# MAGIC SELECT
-# MAGIC   e.event_id,
-# MAGIC   e.event_name,
-# MAGIC   e.event_date,
-# MAGIC   v.venue_name,
-# MAGIC   v.city,
-# MAGIC   v.state,
-# MAGIC   a.attraction_name
-# MAGIC FROM ticket_master.silver.events e
-# MAGIC INNER JOIN ticket_master.silver.event_venues ev ON e.event_id = ev.event_id
-# MAGIC INNER JOIN ticket_master.silver.venues v ON ev.venue_id = v.venue_id
-# MAGIC LEFT JOIN ticket_master.silver.event_attractions ea ON e.event_id = ea.event_id
-# MAGIC LEFT JOIN ticket_master.silver.attractions a ON ea.attraction_id = a.attraction_id
-# MAGIC WHERE e.event_date >= CURRENT_DATE()
-# MAGIC ORDER BY e.event_date
-# MAGIC LIMIT 20;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Data Quality Checks
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Check for orphaned records (should be 0)
-# MAGIC SELECT COUNT(*) as orphaned_event_venues
-# MAGIC FROM ticket_master.silver.event_venues ev
-# MAGIC LEFT JOIN ticket_master.silver.events e ON ev.event_id = e.event_id
-# MAGIC WHERE e.event_id IS NULL;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Check for NULL primary keys (should be 0)
-# MAGIC SELECT
-# MAGIC   'events' as table_name,
-# MAGIC   COUNT(*) as null_pk_count
-# MAGIC FROM ticket_master.silver.events
-# MAGIC WHERE event_id IS NULL
-# MAGIC UNION ALL
-# MAGIC SELECT 'venues', COUNT(*)
-# MAGIC FROM ticket_master.silver.venues
-# MAGIC WHERE venue_id IS NULL;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Maintenance Operations
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Optimize all silver tables
-# MAGIC OPTIMIZE ticket_master.silver.events;
-# MAGIC OPTIMIZE ticket_master.silver.venues;
-# MAGIC OPTIMIZE ticket_master.silver.attractions;
-# MAGIC OPTIMIZE ticket_master.silver.classifications;
-# MAGIC OPTIMIZE ticket_master.silver.markets;
-# MAGIC OPTIMIZE ticket_master.silver.event_venues;
-# MAGIC OPTIMIZE ticket_master.silver.event_attractions;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Analyze tables for query optimization
-# MAGIC ANALYZE TABLE ticket_master.silver.events COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticket_master.silver.venues COMPUTE STATISTICS FOR ALL COLUMNS;

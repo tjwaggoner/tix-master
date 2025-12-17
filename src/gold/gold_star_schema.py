@@ -60,6 +60,91 @@ print(f"✓ Gold schema ready: {CATALOG}.{GOLD_SCHEMA}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## Helper Functions
+
+# COMMAND ----------
+
+def add_primary_key_if_not_exists(table_name: str, constraint_name: str, pk_columns: list):
+    """
+    Add a primary key constraint if it doesn't already exist.
+    Also ensures the columns are set to NOT NULL first.
+    
+    Args:
+        table_name: Full table name (catalog.schema.table)
+        constraint_name: Name of the constraint
+        pk_columns: List of column names that make up the primary key
+    """
+    # Check if constraint already exists using information_schema
+    catalog, schema, table = table_name.split(".")
+    constraints = spark.sql(f"""
+        SELECT constraint_name
+        FROM {catalog}.information_schema.table_constraints
+        WHERE table_schema = '{schema}'
+          AND table_name = '{table}'
+          AND constraint_type = 'PRIMARY KEY'
+          AND constraint_name = '{constraint_name}'
+    """).collect()
+    
+    if constraints:
+        print(f"  ⚠️  Constraint '{constraint_name}' already exists on {table_name}, skipping")
+        return
+    
+    # Set columns as NOT NULL
+    for col_name in pk_columns:
+        try:
+            spark.sql(
+                f"ALTER TABLE {table_name} ALTER COLUMN {col_name} SET NOT NULL"
+            )
+        except Exception as e:
+            if "DELTA_COLUMN_ALREADY_NOT_NULLABLE" in str(e):
+                pass
+            else:
+                raise
+    
+    # Add primary key constraint with RELY
+    pk_cols_str = ", ".join(pk_columns)
+    spark.sql(
+        f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} PRIMARY KEY ({pk_cols_str}) RELY"
+    )
+    print(f"  ✓ Added constraint '{constraint_name}' on {table_name}")
+
+def add_foreign_key_if_not_exists(table_name: str, constraint_name: str, fk_columns: list, reference_table: str, reference_columns: list):
+    """
+    Add a foreign key constraint if it doesn't already exist.
+    
+    Args:
+        table_name: Full table name (catalog.schema.table)
+        constraint_name: Name of the constraint
+        fk_columns: List of column names that make up the foreign key
+        reference_table: Full reference table name (catalog.schema.table)
+        reference_columns: List of column names in the reference table
+    """
+    # Check if constraint already exists using information_schema
+    catalog, schema, table = table_name.split(".")
+    constraints = spark.sql(f"""
+        SELECT constraint_name
+        FROM {catalog}.information_schema.table_constraints
+        WHERE table_schema = '{schema}'
+          AND table_name = '{table}'
+          AND constraint_type = 'FOREIGN KEY'
+          AND constraint_name = '{constraint_name}'
+    """).collect()
+    
+    if constraints:
+        print(f"  ⚠️  Constraint '{constraint_name}' already exists on {table_name}, skipping")
+        return
+    
+    # Add foreign key constraint
+    fk_cols_str = ", ".join(fk_columns)
+    ref_cols_str = ", ".join(reference_columns)
+    spark.sql(
+        f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} FOREIGN KEY ({fk_cols_str}) REFERENCES {reference_table} ({ref_cols_str})"
+    )
+    print(f"  ✓ Added constraint '{constraint_name}' on {table_name}")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## Dimension Table: Date Dimension
 
 # COMMAND ----------
@@ -102,10 +187,8 @@ def create_dim_date():
         .saveAsTable(table_name)
 
     # Add primary key on date_key
-    spark.sql(f"""
-        ALTER TABLE {table_name}
-        ADD CONSTRAINT dim_date_pk PRIMARY KEY (date_key)
-    """)
+    # Add primary key constraint (if not exists)
+    add_primary_key_if_not_exists(table_name, "dim_date_pk", ["date_key"])
 
     print(f"✓ Created {table_name} with {dim_date.count():,} records")
 
@@ -235,7 +318,7 @@ create_dim_date()
 # MAGIC %sql
 # MAGIC -- Create dim_classification
 # MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_classification (
-# MAGIC   classification_sk BIGINT GENERATED ALWAYS AS IDENTITY,
+# MAGIC   classification_sk BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 # MAGIC   classification_id STRING NOT NULL,
 # MAGIC   segment_id STRING,
 # MAGIC   segment_name STRING,
@@ -253,21 +336,21 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_classification
-# MAGIC INSERT INTO ticket_master.gold.dim_classification
-# MAGIC SELECT
-# MAGIC   DEFAULT,  -- Use DEFAULT for IDENTITY column
+# MAGIC -- Populate dim_classification (excluding IDENTITY column)
+# MAGIC -- Note: Only segment, type, and family fields exist in Ticketmaster API
+# MAGIC INSERT INTO ticket_master.gold.dim_classification (
 # MAGIC   classification_id,
 # MAGIC   segment_id,
 # MAGIC   segment_name,
-# MAGIC   genre_id,
-# MAGIC   genre_name,
-# MAGIC   subgenre_id,
-# MAGIC   subgenre_name,
 # MAGIC   type_id,
-# MAGIC   type_name,
-# MAGIC   subtype_id,
-# MAGIC   subtype_name
+# MAGIC   type_name
+# MAGIC )
+# MAGIC SELECT
+# MAGIC   classification_id,
+# MAGIC   segment_id,
+# MAGIC   segment_name,
+# MAGIC   type_id,
+# MAGIC   type_name
 # MAGIC FROM ticket_master.silver.classifications;
 
 # COMMAND ----------
@@ -289,10 +372,12 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_market
-# MAGIC INSERT INTO ticket_master.gold.dim_market
+# MAGIC -- Populate dim_market (excluding IDENTITY column)
+# MAGIC INSERT INTO ticket_master.gold.dim_market (
+# MAGIC   market_id,
+# MAGIC   market_name
+# MAGIC )
 # MAGIC SELECT
-# MAGIC   DEFAULT,
 # MAGIC   market_id,
 # MAGIC   market_name
 # MAGIC FROM ticket_master.silver.markets;
@@ -305,9 +390,15 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
+# MAGIC -- Drop existing table to ensure clean recreation with updated schema
+# MAGIC DROP TABLE IF EXISTS ticket_master.gold.fact_events;
+
+# COMMAND ----------
+
+# MAGIC %sql
 # MAGIC -- Create fact_events with foreign keys to dimensions and liquid clustering
 # MAGIC -- Using liquid clustering (DBR 15.2+) instead of partitioning for better performance
-# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.fact_events (
+# MAGIC CREATE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk BIGINT GENERATED ALWAYS AS IDENTITY,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   event_name STRING,
@@ -340,33 +431,101 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate fact_events with dimension lookups
-# MAGIC INSERT INTO ticket_master.gold.fact_events
-# MAGIC SELECT
-# MAGIC   DEFAULT as event_sk,
-# MAGIC   e.event_id,
-# MAGIC   e.event_name,
-# MAGIC   e.event_type,
-# MAGIC   CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) as event_date_key,
-# MAGIC   dv.venue_sk,
-# MAGIC   da.attraction_sk,
-# MAGIC   NULL as classification_sk,  -- Can be added with additional join
-# MAGIC   e.event_datetime,
-# MAGIC   e.event_time,
-# MAGIC   e.event_timezone,
-# MAGIC   e.price_min,
-# MAGIC   e.price_max,
-# MAGIC   e.price_currency,
-# MAGIC   e.status_code,
-# MAGIC   e.sales_start_datetime,
-# MAGIC   e.sales_end_datetime,
-# MAGIC   e.is_test,
-# MAGIC   e.event_url
-# MAGIC FROM ticket_master.silver.events e
-# MAGIC LEFT JOIN ticket_master.silver.event_venues ev ON e.event_id = ev.event_id
-# MAGIC LEFT JOIN ticket_master.gold.dim_venue dv ON ev.venue_id = dv.venue_id AND dv.is_current = TRUE
-# MAGIC LEFT JOIN ticket_master.silver.event_attractions ea ON e.event_id = ea.event_id
-# MAGIC LEFT JOIN ticket_master.gold.dim_attraction da ON ea.attraction_id = da.attraction_id AND da.is_current = TRUE;
+# MAGIC -- MERGE fact_events for upsert capability (insert new, update existing)
+# MAGIC MERGE INTO ticket_master.gold.fact_events AS t
+# MAGIC USING (
+# MAGIC   SELECT
+# MAGIC     e.event_id,
+# MAGIC     e.event_name,
+# MAGIC     e.event_type,
+# MAGIC     CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) AS event_date_key,
+# MAGIC     dv.venue_sk,
+# MAGIC     da.attraction_sk,
+# MAGIC     CAST(NULL AS BIGINT) AS classification_sk, -- placeholder for future join
+# MAGIC     e.event_datetime,
+# MAGIC     e.event_time,
+# MAGIC     e.event_timezone,
+# MAGIC     e.price_min,
+# MAGIC     e.price_max,
+# MAGIC     e.price_currency,
+# MAGIC     e.status_code,
+# MAGIC     e.sales_start_datetime,
+# MAGIC     e.sales_end_datetime,
+# MAGIC     e.is_test,
+# MAGIC     e.event_url
+# MAGIC   FROM ticket_master.silver.events e
+# MAGIC   LEFT JOIN ticket_master.silver.event_venues ev
+# MAGIC     ON e.event_id = ev.event_id
+# MAGIC   LEFT JOIN ticket_master.gold.dim_venue dv
+# MAGIC     ON ev.venue_id = dv.venue_id AND dv.is_current = TRUE
+# MAGIC   LEFT JOIN ticket_master.silver.event_attractions ea
+# MAGIC     ON e.event_id = ea.event_id
+# MAGIC   LEFT JOIN ticket_master.gold.dim_attraction da
+# MAGIC     ON ea.attraction_id = da.attraction_id AND da.is_current = TRUE
+# MAGIC ) AS s
+# MAGIC -- Match on event_id, venue_sk, and attraction_sk (preserves grain)
+# MAGIC ON  t.event_id       = s.event_id
+# MAGIC AND t.venue_sk      <=> s.venue_sk       -- null-safe equality
+# MAGIC AND t.attraction_sk <=> s.attraction_sk  -- null-safe equality
+# MAGIC 
+# MAGIC WHEN MATCHED THEN UPDATE SET
+# MAGIC   t.event_name            = s.event_name,
+# MAGIC   t.event_type            = s.event_type,
+# MAGIC   t.event_date_key        = s.event_date_key,
+# MAGIC   t.venue_sk              = s.venue_sk,
+# MAGIC   t.attraction_sk         = s.attraction_sk,
+# MAGIC   t.classification_sk     = s.classification_sk,
+# MAGIC   t.event_datetime        = s.event_datetime,
+# MAGIC   t.event_time            = s.event_time,
+# MAGIC   t.event_timezone        = s.event_timezone,
+# MAGIC   t.price_min             = s.price_min,
+# MAGIC   t.price_max             = s.price_max,
+# MAGIC   t.price_currency        = s.price_currency,
+# MAGIC   t.status_code           = s.status_code,
+# MAGIC   t.sales_start_datetime  = s.sales_start_datetime,
+# MAGIC   t.sales_end_datetime    = s.sales_end_datetime,
+# MAGIC   t.is_test               = s.is_test,
+# MAGIC   t.event_url             = s.event_url
+# MAGIC 
+# MAGIC WHEN NOT MATCHED THEN INSERT (
+# MAGIC   event_id,
+# MAGIC   event_name,
+# MAGIC   event_type,
+# MAGIC   event_date_key,
+# MAGIC   venue_sk,
+# MAGIC   attraction_sk,
+# MAGIC   classification_sk,
+# MAGIC   event_datetime,
+# MAGIC   event_time,
+# MAGIC   event_timezone,
+# MAGIC   price_min,
+# MAGIC   price_max,
+# MAGIC   price_currency,
+# MAGIC   status_code,
+# MAGIC   sales_start_datetime,
+# MAGIC   sales_end_datetime,
+# MAGIC   is_test,
+# MAGIC   event_url
+# MAGIC ) VALUES (
+# MAGIC   s.event_id,
+# MAGIC   s.event_name,
+# MAGIC   s.event_type,
+# MAGIC   s.event_date_key,
+# MAGIC   s.venue_sk,
+# MAGIC   s.attraction_sk,
+# MAGIC   s.classification_sk,
+# MAGIC   s.event_datetime,
+# MAGIC   s.event_time,
+# MAGIC   s.event_timezone,
+# MAGIC   s.price_min,
+# MAGIC   s.price_max,
+# MAGIC   s.price_currency,
+# MAGIC   s.status_code,
+# MAGIC   s.sales_start_datetime,
+# MAGIC   s.sales_end_datetime,
+# MAGIC   s.is_test,
+# MAGIC   s.event_url
+# MAGIC );
 
 # COMMAND ----------
 
@@ -471,97 +630,3 @@ for table in gold_tables:
         print(f"ticket_master.gold.{table}: Not found")
 
 # COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Sample Star Schema Query
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Example BI query using the star schema
-# MAGIC SELECT
-# MAGIC   d.year,
-# MAGIC   d.month_name,
-# MAGIC   v.city,
-# MAGIC   v.state,
-# MAGIC   a.attraction_name,
-# MAGIC   a.genre_name,
-# MAGIC   COUNT(f.event_id) as event_count,
-# MAGIC   AVG(f.price_max) as avg_max_price,
-# MAGIC   MIN(f.event_datetime) as first_event,
-# MAGIC   MAX(f.event_datetime) as last_event
-# MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
-# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
-# MAGIC LEFT JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk = a.attraction_sk
-# MAGIC WHERE d.year = YEAR(CURRENT_DATE())
-# MAGIC   AND v.country = 'United States'
-# MAGIC   AND f.is_test = FALSE
-# MAGIC GROUP BY
-# MAGIC   d.year, d.month_name, v.city, v.state, a.attraction_name, a.genre_name
-# MAGIC ORDER BY
-# MAGIC   event_count DESC
-# MAGIC LIMIT 50;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Query Performance with Identity Keys
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Demonstrate query plan optimization with identity keys
-# MAGIC EXPLAIN EXTENDED
-# MAGIC SELECT
-# MAGIC   v.venue_name,
-# MAGIC   COUNT(*) as event_count
-# MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
-# MAGIC GROUP BY v.venue_name;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Optimization and Maintenance
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Optimize fact table (liquid clustering handles layout automatically)
-# MAGIC -- No ZORDER needed with liquid clustering
-# MAGIC OPTIMIZE ticket_master.gold.fact_events;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Optimize dimensions
-# MAGIC OPTIMIZE ticket_master.gold.dim_venue;
-# MAGIC OPTIMIZE ticket_master.gold.dim_attraction;
-# MAGIC OPTIMIZE ticket_master.gold.dim_date;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Analyze tables for cost-based optimizer
-# MAGIC ANALYZE TABLE ticket_master.gold.fact_events COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticket_master.gold.dim_venue COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticket_master.gold.dim_attraction COMPUTE STATISTICS FOR ALL COLUMNS;
-# MAGIC ANALYZE TABLE ticket_master.gold.dim_date COMPUTE STATISTICS FOR ALL COLUMNS;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Success! Gold Layer Complete
-# MAGIC
-# MAGIC You now have:
-# MAGIC - ✅ Star schema with fact and dimension tables
-# MAGIC - ✅ Identity surrogate keys for optimal performance
-# MAGIC - ✅ Primary and foreign key constraints
-# MAGIC - ✅ Materialized views for common queries
-# MAGIC - ✅ Optimized for SQL Warehouse and BI tools
-# MAGIC
-# MAGIC Next steps:
-# MAGIC - Connect BI tool (Tableau, Power BI, etc.)
-# MAGIC - Enable AI/BI Genie for natural language queries
-# MAGIC - Create additional aggregates as needed

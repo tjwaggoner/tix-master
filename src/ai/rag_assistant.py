@@ -42,9 +42,9 @@ import json
 
 # COMMAND ----------
 
-CATALOG = "ticketmaster"
+CATALOG = "ticket_master"
 SCHEMA = "gold"
-VECTOR_SEARCH_ENDPOINT = "ticketmaster_vector_search"
+VECTOR_SEARCH_ENDPOINT = "ticket_master_vector_search"
 INDEX_NAME = "events_index"
 
 # Foundation Model endpoints
@@ -369,7 +369,7 @@ if user_question:
 # MAGIC %sql
 # MAGIC -- Refresh vector index when new events are added
 # MAGIC -- This can be automated with a job
-# MAGIC ALTER INDEX ticketmaster.gold.events_index SYNC;
+# MAGIC ALTER INDEX ticket_master.gold.events_index SYNC;
 
 # COMMAND ----------
 

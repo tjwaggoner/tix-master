@@ -22,7 +22,7 @@ AI/BI Genie is Databricks' natural language interface for SQL Warehouses. It all
    - **Name**: Ticketmaster Events Analytics
    - **Description**: Natural language interface for querying Ticketmaster events, venues, and attractions
    - **SQL Warehouse**: Select your warehouse
-   - **Catalog**: `ticketmaster`
+   - **Catalog**: `ticket_master`
    - **Schema**: `gold`
 
 ## Step 2: Configure Instructions
@@ -69,9 +69,9 @@ Configure these example questions to help users:
 
 ```sql
 -- Grant read access to relevant users/groups
-GRANT SELECT ON CATALOG ticketmaster TO `data_analysts`;
-GRANT SELECT ON SCHEMA ticketmaster.gold TO `data_analysts`;
-GRANT SELECT ON ALL TABLES IN SCHEMA ticketmaster.gold TO `data_analysts`;
+GRANT SELECT ON CATALOG ticket_master TO `data_analysts`;
+GRANT SELECT ON SCHEMA ticket_master.gold TO `data_analysts`;
+GRANT SELECT ON ALL TABLES IN SCHEMA ticket_master.gold TO `data_analysts`;
 
 -- Grant Genie usage
 GRANT USE GENIE ON SPACE `Ticketmaster Events Analytics` TO `data_analysts`;
@@ -103,14 +103,14 @@ Try these test queries:
 
 1. **Optimize tables**: Ensure all Gold tables have statistics
    ```sql
-   ANALYZE TABLE ticketmaster.gold.fact_events COMPUTE STATISTICS FOR ALL COLUMNS;
+   ANALYZE TABLE ticket_master.gold.fact_events COMPUTE STATISTICS FOR ALL COLUMNS;
    ```
 
 2. **Use materialized views**: Create views for common queries
 3. **Add table/column comments**: Help Genie understand the schema
    ```sql
-   COMMENT ON TABLE ticketmaster.gold.fact_events IS 'Core event facts';
-   COMMENT ON COLUMN ticketmaster.gold.fact_events.price_max IS 'Maximum ticket price';
+   COMMENT ON TABLE ticket_master.gold.fact_events IS 'Core event facts';
+   COMMENT ON COLUMN ticket_master.gold.fact_events.price_max IS 'Maximum ticket price';
    ```
 
 4. **Set up row-level security**: If needed, restrict data access by user
