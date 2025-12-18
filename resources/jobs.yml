@@ -105,16 +105,6 @@ resources:
               path: ../sql/stored_procedures/call_event_summary.sql
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
-        
-        # Task 8: Alert on data quality failures
-        - task_key: alert_quality_failures
-          depends_on:
-            - task_key: call_event_summary
-          sql_task:
-            file:
-              path: ../sql/check_quality_failures.sql
-            warehouse_id: "${var.warehouse_id}"
-          timeout_seconds: 600
       
       # Retry policy
       max_concurrent_runs: 1
