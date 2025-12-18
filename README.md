@@ -121,7 +121,7 @@ Before deploying, ensure you have:
 #### Create Unity Catalog
 ```sql
 -- Run this in Databricks SQL or a notebook
-CREATE CATALOG IF NOT EXISTS ticket_master;
+CREATE CATALOG IF NOT EXISTS ticket_master; -- If this doesn't work; Click 'Catalog' -> '+' -> 'Add Catalog' 
 
 -- Grant permissions (optional, for team access)
 GRANT USE CATALOG, CREATE SCHEMA ON CATALOG ticket_master TO `your_group`;
