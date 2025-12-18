@@ -1,6 +1,6 @@
 # Ticketmaster Medallion Architecture
 
-A production-ready data lakehouse implementation for Ticketmaster API data using Databricks Unity Catalog with Bronze/Silver/Gold medallion architecture, deployed via Databricks Asset Bundles (DAB).
+A data lakehouse implementation for Ticketmaster API data using Databricks Unity Catalog with Bronze/Silver/Gold medallion architecture, deployed via Databricks Asset Bundles (DAB).
 
 ## 🏗️ Architecture Overview
 
