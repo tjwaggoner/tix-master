@@ -54,8 +54,8 @@ resources:
               silver_schema: "${var.silver_schema}"
           timeout_seconds: 3600
         
-        # Task 3a: Create data quality checks stored procedure
-        - task_key: create_data_quality_sp
+        # Task 3: Create data quality checks stored procedure
+        - task_key: create_sp_data_quality
           depends_on:
             - task_key: silver_transformations
           sql_task:
@@ -64,20 +64,20 @@ resources:
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
         
-        # Task 3b: Run data quality checks
-        - task_key: run_data_quality_checks
+        # Task 4: Run data quality checks
+        - task_key: call_data_quality_checks
           depends_on:
-            - task_key: create_data_quality_sp
+            - task_key: create_sp_data_quality
           sql_task:
             file:
-              path: ../sql/run_data_quality_checks.sql
+              path: ../sql/call_data_quality_checks.sql
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
         
-        # Task 4: Build Gold star schema
+        # Task 5: Build Gold star schema
         - task_key: gold_star_schema
           depends_on:
-            - task_key: run_data_quality_checks
+            - task_key: call_data_quality_checks
           notebook_task:
             notebook_path: ../src/gold/gold_star_schema.py
             base_parameters:
@@ -86,8 +86,8 @@ resources:
               gold_schema: "${var.gold_schema}"
           timeout_seconds: 3600
         
-        # Task 5a: Create event summary stored procedure
-        - task_key: create_event_summary_sp
+        # Task 6: Create event summary stored procedure
+        - task_key: create_sp_event_summary
           depends_on:
             - task_key: gold_star_schema
           sql_task:
@@ -96,13 +96,13 @@ resources:
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
         
-        # Task 5b: Run event summary generation
-        - task_key: run_event_summary
+        # Task 7: Run event summary generation
+        - task_key: call_event_summary
           depends_on:
-            - task_key: create_event_summary_sp
+            - task_key: create_sp_event_summary
           sql_task:
             file:
-              path: ../sql/run_event_summary.sql
+              path: ../sql/call_event_summary.sql
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
       
@@ -128,28 +128,6 @@ resources:
       
       max_concurrent_runs: 1
       timeout_seconds: 3600
-    
-    # Manual Data Quality Check (for testing)
-    tix_master_data_quality_check:
-      name: "[${bundle.target}] Tix Master Data Quality Check"
-      
-      # Permissions
-      permissions:
-        - level: CAN_MANAGE
-          user_name: cassi.sullivan@databricks.com
-        - level: CAN_MANAGE
-          user_name: alexander.booth@databricks.com
-      
-      tasks:
-        - task_key: run_data_quality_checks
-          sql_task:
-            file:
-              path: ../sql/run_data_quality_checks.sql
-            warehouse_id: "${var.warehouse_id}"
-          timeout_seconds: 1800
-      
-      max_concurrent_runs: 1
-      timeout_seconds: 1800
 
     ## TODO: To uncomment, please deploy to a classic workspace, not a serverless workspace.
     # # Creation of Genie Space
