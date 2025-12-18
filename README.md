@@ -400,11 +400,12 @@ Answer: "I found 3 rock concerts in LA under $100: ..."
 ### Running the RAG Assistant
 
 1. **Run the ETL pipeline** to populate star schema tables
-2. **Open the RAG notebook**: `src/ai/rag/rag_assistant.py`
-3. **Execute cells** to:
-   - Create event documents table
-   - Set up Vector Search endpoint and index
-   - Test queries
+2. **Setup Vector Search** (one-time): `src/ai/rag/setup_vector_search.py`
+   - Creates vector search endpoint and index
+3. **Deploy Serving Endpoint**: `src/ai/rag/deploy_serving_endpoint.py`
+   - Creates MLflow model and API endpoint
+4. **Launch Web App**: `src/ai/rag/webapp.py`
+   - Interactive web interface for querying
 
 ### Example Queries
 
@@ -427,12 +428,15 @@ The notebook includes a widget for interactive querying:
 
 For production use, deploy as a model serving endpoint with web interface:
 
-1. **Deploy Model Endpoint**: Run `src/ai/rag/rag_model.py`
+1. **Setup Vector Search**: Run `src/ai/rag/setup_vector_search.py` (one-time)
+   - Creates vector search endpoint and index
+
+2. **Deploy Model Endpoint**: Run `src/ai/rag/deploy_serving_endpoint.py`
    - Packages RAG as MLflow model
    - Registers to Unity Catalog: `ticket_master.gold.event_rag_model`
    - Creates serving endpoint: `event-rag-assistant`
 
-2. **Launch Web App**: Run `src/ai/rag/webapp.py`
+3. **Launch Web App**: Run `src/ai/rag/webapp.py`
    - Gradio interface for querying
    - Shareable URL for team access
    - Production-ready with scale-to-zero

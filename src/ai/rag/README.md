@@ -4,16 +4,23 @@ AI-powered Q&A system for Ticketmaster events using Retrieval Augmented Generati
 
 ## 📁 Files
 
-- **`rag_assistant.py`** - Full RAG notebook (setup + testing)
-- **`rag_model.py`** - MLflow model + serving endpoint deployment
-- **`webapp.py`** - Gradio web application
-- **`sync_vector_index.py`** - Auto-sync vector embeddings (runs in pipeline)
+- **`setup_vector_search.py`** - Creates vector search endpoint and index (one-time setup)
+- **`deploy_serving_endpoint.py`** - Creates MLflow model and serving endpoint for API access
+- **`webapp.py`** - Gradio web application for interactive querying
+- **`sync_vector_index.py`** - Auto-sync vector embeddings (runs in pipeline after ETL)
 
 ## 🚀 Quick Start
 
-### Step 1: Deploy Model Serving Endpoint
+### Step 1: Setup Vector Search (One-time)
 
-1. Open `rag_model.py` in Databricks
+1. Open `setup_vector_search.py` in Databricks
+2. Run all cells to create:
+   - Vector search endpoint: `ticket_master_vector_search`
+   - Vector index: `ticket_master.gold.events_index`
+
+### Step 2: Deploy Model Serving Endpoint
+
+1. Open `deploy_serving_endpoint.py` in Databricks
 2. Run all cells to:
    - Test the RAG model locally
    - Register model to Unity Catalog
@@ -21,7 +28,7 @@ AI-powered Q&A system for Ticketmaster events using Retrieval Augmented Generati
 
 **Wait for endpoint to be ready** (~5-10 minutes)
 
-### Step 2: Launch Web App
+### Step 3: Launch Web App
 
 1. Open `webapp.py` in Databricks
 2. Run all cells
