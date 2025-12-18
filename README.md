@@ -423,14 +423,25 @@ The notebook includes a widget for interactive querying:
 - Get formatted response with relevant event details
 - No SQL knowledge required!
 
+### Web Application Deployment
+
+For production use, deploy as a model serving endpoint with web interface:
+
+1. **Deploy Model Endpoint**: Run `src/ai/rag/rag_model.py`
+   - Packages RAG as MLflow model
+   - Registers to Unity Catalog: `ticket_master.gold.event_rag_model`
+   - Creates serving endpoint: `event-rag-assistant`
+
+2. **Launch Web App**: Run `src/ai/rag/webapp.py`
+   - Gradio interface for querying
+   - Shareable URL for team access
+   - Production-ready with scale-to-zero
+
+See `src/ai/rag/README.md` for detailed deployment instructions.
+
 ### Maintenance
 
-```sql
--- Refresh vector index when new events are added
-ALTER INDEX ticket_master.gold.events_index SYNC;
-```
-
-The index can be automatically synced when new data is loaded into the pipeline.
+The vector index automatically syncs after each ETL run via the `sync_vector_index` task in the pipeline.
 
 ## 📖 Additional Resources
 
