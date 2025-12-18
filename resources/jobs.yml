@@ -111,7 +111,7 @@ resources:
           depends_on:
             - task_key: call_event_summary
           notebook_task:
-            notebook_path: ../src/ai/sync_vector_index.py
+            notebook_path: ../src/ai/rag/sync_vector_index.py
           timeout_seconds: 600
       
       # Retry policy

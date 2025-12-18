@@ -400,7 +400,7 @@ Answer: "I found 3 rock concerts in LA under $100: ..."
 ### Running the RAG Assistant
 
 1. **Run the ETL pipeline** to populate star schema tables
-2. **Open the RAG notebook**: `src/ai/rag_assistant.py`
+2. **Open the RAG notebook**: `src/ai/rag/rag_assistant.py`
 3. **Execute cells** to:
    - Create event documents table
    - Set up Vector Search endpoint and index
