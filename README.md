@@ -400,12 +400,10 @@ Answer: "I found 3 rock concerts in LA under $100: ..."
 ### Running the RAG Assistant
 
 1. **Run the ETL pipeline** to populate star schema tables
-2. **Setup Vector Search** (one-time): `src/ai/rag/setup_vector_search.py`
+2. **Setup Vector Search**: `src/ai/rag/setup_vector_search.py`
    - Creates vector search endpoint and index
-3. **Deploy Serving Endpoint**: `src/ai/rag/deploy_serving_endpoint.py`
-   - Creates MLflow model and API endpoint
-4. **Launch Web App**: `src/ai/rag/webapp.py`
-   - Interactive web interface for querying
+   - Includes interactive query widget for asking questions
+   - Use the widget or call functions directly in the notebook
 
 ### Example Queries
 
@@ -424,24 +422,12 @@ The notebook includes a widget for interactive querying:
 - Get formatted response with relevant event details
 - No SQL knowledge required!
 
-### Web Application Deployment
+### Using the Assistant
 
-For production use, deploy as a model serving endpoint with web interface:
-
-1. **Setup Vector Search**: Run `src/ai/rag/setup_vector_search.py` (one-time)
-   - Creates vector search endpoint and index
-
-2. **Deploy Model Endpoint**: Run `src/ai/rag/deploy_serving_endpoint.py`
-   - Packages RAG as MLflow model
-   - Registers to Unity Catalog: `ticket_master.gold.event_rag_model`
-   - Creates serving endpoint: `event-rag-assistant`
-
-3. **Launch Web App**: Run `src/ai/rag/webapp.py`
-   - Gradio interface for querying
-   - Shareable URL for team access
-   - Production-ready with scale-to-zero
-
-See `src/ai/rag/README.md` for detailed deployment instructions.
+Open `src/ai/rag/setup_vector_search.py` and use the interactive widget:
+- Enter questions in natural language
+- Get AI-generated answers with event details
+- No code required!
 
 ### Maintenance
 
