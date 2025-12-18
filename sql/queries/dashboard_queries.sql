@@ -1,6 +1,7 @@
 -- ============================================================
 -- Dashboard Query Definitions
 -- Copy each query below into Databricks SQL to create visualizations
+-- Fixed to use correct system table schemas
 -- ============================================================
 
 -- =============================================================================
@@ -10,15 +11,20 @@
 -- Visualization: Line Chart
 -- X-Axis: usage_hour
 -- Y-Axis: cost_usd
--- Description: Shows cost by hour for the last 48 hours to identify usage patterns
 SELECT 
-    DATE_TRUNC('HOUR', usage_start_time) as usage_hour,
-    SUM(usage_quantity * list_price) as cost_usd,
-    COUNT(DISTINCT usage_metadata.job_id) as job_count,
-    SUM(usage_quantity) as total_dbus
-FROM system.billing.usage
-WHERE usage_start_time >= CURRENT_TIMESTAMP - INTERVAL 48 HOURS
-    AND usage_metadata.job_name LIKE '%Tix Master%'
+    DATE_TRUNC('HOUR', u.usage_start_time) as usage_hour,
+    SUM(u.usage_quantity * p.pricing.default) as cost_usd,
+    COUNT(DISTINCT u.usage_metadata.job_id) as job_count,
+    SUM(u.usage_quantity) as total_dbus
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE u.usage_start_time >= CURRENT_TIMESTAMP - INTERVAL 48 HOURS
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL
 GROUP BY 1
 ORDER BY usage_hour;
 
@@ -30,14 +36,19 @@ ORDER BY usage_hour;
 -- X-Axis: usage_hour
 -- Y-Axis: cost_usd
 -- Group by: task_name
--- Description: Shows which tasks are most expensive by hour
 SELECT 
-    DATE_TRUNC('HOUR', usage_start_time) as usage_hour,
-    COALESCE(usage_metadata.task_key, 'unknown') as task_name,
-    SUM(usage_quantity * list_price) as cost_usd
-FROM system.billing.usage
-WHERE usage_start_time >= CURRENT_TIMESTAMP - INTERVAL 24 HOURS
-    AND usage_metadata.job_name LIKE '%Tix Master%'
+    DATE_TRUNC('HOUR', u.usage_start_time) as usage_hour,
+    COALESCE(u.usage_metadata.task_key, 'unknown') as task_name,
+    SUM(u.usage_quantity * p.pricing.default) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE u.usage_start_time >= CURRENT_TIMESTAMP - INTERVAL 24 HOURS
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL
 GROUP BY 1, 2
 ORDER BY usage_hour, cost_usd DESC;
 
@@ -47,12 +58,17 @@ ORDER BY usage_hour, cost_usd DESC;
 -- Name: Current Hour Cost
 -- Visualization: Counter
 -- Format: Currency (2 decimals)
--- Description: Shows cost accumulating in the current hour
 SELECT 
-    COALESCE(SUM(usage_quantity * list_price), 0) as cost_usd
-FROM system.billing.usage
-WHERE DATE_TRUNC('HOUR', usage_start_time) = DATE_TRUNC('HOUR', CURRENT_TIMESTAMP)
-    AND usage_metadata.job_name LIKE '%Tix Master%';
+    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE DATE_TRUNC('HOUR', u.usage_start_time) = DATE_TRUNC('HOUR', CURRENT_TIMESTAMP)
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL;
 
 -- =============================================================================
 -- QUERY 1: Cost Today (Counter visualization)
@@ -61,10 +77,16 @@ WHERE DATE_TRUNC('HOUR', usage_start_time) = DATE_TRUNC('HOUR', CURRENT_TIMESTAM
 -- Visualization: Counter
 -- Format: Currency (2 decimals)
 SELECT 
-    COALESCE(SUM(usage_quantity * list_price), 0) as cost_usd
-FROM system.billing.usage
-WHERE DATE(usage_start_time) = CURRENT_DATE
-    AND usage_metadata.job_name LIKE '%Tix Master%';
+    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE DATE(u.usage_start_time) = CURRENT_DATE
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL;
 
 -- =============================================================================
 -- QUERY 2: Cost Yesterday (Counter visualization)
@@ -73,10 +95,16 @@ WHERE DATE(usage_start_time) = CURRENT_DATE
 -- Visualization: Counter
 -- Format: Currency (2 decimals)
 SELECT 
-    COALESCE(SUM(usage_quantity * list_price), 0) as cost_usd
-FROM system.billing.usage
-WHERE DATE(usage_start_time) = CURRENT_DATE - 1
-    AND usage_metadata.job_name LIKE '%Tix Master%';
+    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE DATE(u.usage_start_time) = CURRENT_DATE - 1
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL;
 
 -- =============================================================================
 -- QUERY 3: Cost Last 7 Days (Counter visualization)
@@ -85,10 +113,16 @@ WHERE DATE(usage_start_time) = CURRENT_DATE - 1
 -- Visualization: Counter
 -- Format: Currency (2 decimals)
 SELECT 
-    COALESCE(SUM(usage_quantity * list_price), 0) as cost_usd
-FROM system.billing.usage
-WHERE usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
-    AND usage_metadata.job_name LIKE '%Tix Master%';
+    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE u.usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL;
 
 -- =============================================================================
 -- QUERY 4: Cost Last 30 Days (Counter visualization)
@@ -97,10 +131,16 @@ WHERE usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
 -- Visualization: Counter
 -- Format: Currency (2 decimals)
 SELECT 
-    COALESCE(SUM(usage_quantity * list_price), 0) as cost_usd
-FROM system.billing.usage
-WHERE usage_start_time >= CURRENT_DATE - INTERVAL 30 DAYS
-    AND usage_metadata.job_name LIKE '%Tix Master%';
+    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE u.usage_start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL;
 
 -- =============================================================================
 -- QUERY 5: 30-Day Cost Trend (Line Chart)
@@ -110,11 +150,17 @@ WHERE usage_start_time >= CURRENT_DATE - INTERVAL 30 DAYS
 -- X-Axis: usage_date
 -- Y-Axis: cost_usd
 SELECT 
-    DATE(usage_start_time) as usage_date,
-    SUM(usage_quantity * list_price) as cost_usd
-FROM system.billing.usage
-WHERE usage_start_time >= CURRENT_DATE - INTERVAL 30 DAYS
-    AND usage_metadata.job_name LIKE '%Tix Master%'
+    DATE(u.usage_start_time) as usage_date,
+    SUM(u.usage_quantity * p.pricing.default) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE u.usage_start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL
 GROUP BY 1
 ORDER BY usage_date;
 
@@ -127,16 +173,22 @@ ORDER BY usage_date;
 -- Values: cost_usd
 SELECT 
     CASE 
-        WHEN usage_metadata.task_key LIKE '%bronze%' THEN 'BRONZE'
-        WHEN usage_metadata.task_key LIKE '%silver%' THEN 'SILVER'
-        WHEN usage_metadata.task_key LIKE '%gold%' THEN 'GOLD'
-        WHEN usage_metadata.task_key LIKE '%ingest%' THEN 'INGESTION'
+        WHEN u.usage_metadata.task_key LIKE '%bronze%' THEN 'BRONZE'
+        WHEN u.usage_metadata.task_key LIKE '%silver%' THEN 'SILVER'
+        WHEN u.usage_metadata.task_key LIKE '%gold%' THEN 'GOLD'
+        WHEN u.usage_metadata.task_key LIKE '%ingest%' THEN 'INGESTION'
         ELSE 'OTHER'
     END as layer,
-    SUM(usage_quantity * list_price) as cost_usd
-FROM system.billing.usage
-WHERE usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
-    AND usage_metadata.job_name LIKE '%Tix Master%'
+    SUM(u.usage_quantity * p.pricing.default) as cost_usd
+FROM system.billing.usage u
+INNER JOIN system.billing.list_prices p
+    ON u.cloud = p.cloud
+    AND u.sku_name = p.sku_name
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+WHERE u.usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
+    AND u.billing_origin_product = 'JOBS'
+    AND u.usage_metadata.job_id IS NOT NULL
 GROUP BY 1
 ORDER BY cost_usd DESC;
 
@@ -153,8 +205,7 @@ SELECT
     SUM(CASE WHEN result_state = 'FAILED' THEN 1 ELSE 0 END) as failed_runs,
     ROUND(100.0 * SUM(CASE WHEN result_state = 'SUCCESS' THEN 1 ELSE 0 END) / COUNT(*), 2) as success_rate_pct
 FROM system.lakeflow.job_runs
-WHERE job_name LIKE '%Tix Master ETL Pipeline%'
-    AND start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE start_time >= CURRENT_DATE - INTERVAL 30 DAYS
 GROUP BY 1
 ORDER BY run_date;
 
@@ -171,8 +222,7 @@ SELECT
     MIN(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as min_duration_minutes,
     MAX(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as max_duration_minutes
 FROM system.lakeflow.job_runs
-WHERE job_name LIKE '%Tix Master ETL Pipeline%'
-    AND start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE start_time >= CURRENT_DATE - INTERVAL 30 DAYS
     AND result_state = 'SUCCESS'
 GROUP BY 1
 ORDER BY run_date;
@@ -194,11 +244,17 @@ SELECT
     END as status
 FROM (
     SELECT 
-        DATE(usage_start_time) as usage_date,
-        SUM(usage_quantity * list_price) as daily_cost
-    FROM system.billing.usage
-    WHERE usage_metadata.job_name LIKE '%Tix Master%'
-        AND usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
+        DATE(u.usage_start_time) as usage_date,
+        SUM(u.usage_quantity * p.pricing.default) as daily_cost
+    FROM system.billing.usage u
+    INNER JOIN system.billing.list_prices p
+        ON u.cloud = p.cloud
+        AND u.sku_name = p.sku_name
+        AND u.usage_start_time >= p.price_start_time
+        AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+    WHERE u.usage_start_time >= CURRENT_DATE - INTERVAL 7 DAYS
+        AND u.billing_origin_product = 'JOBS'
+        AND u.usage_metadata.job_id IS NOT NULL
     GROUP BY 1
 ) daily_costs
 ORDER BY usage_date DESC;
@@ -212,9 +268,9 @@ ORDER BY usage_date DESC;
 -- Y-Axis: size_gb
 -- Group by: layer
 SELECT 
-    table_schema as layer,
-    table_name,
-    ROUND(SUM(total_size_bytes) / 1024 / 1024 / 1024, 2) as size_gb
+    t.table_schema as layer,
+    t.table_name,
+    ROUND(COALESCE(ts.total_size_bytes, 0) / 1024 / 1024 / 1024, 2) as size_gb
 FROM system.information_schema.tables t
 LEFT JOIN system.information_schema.table_storage_stats ts 
     ON t.table_catalog = ts.table_catalog 
@@ -223,7 +279,6 @@ LEFT JOIN system.information_schema.table_storage_stats ts
 WHERE t.table_catalog = 'ticket_master'
     AND t.table_schema IN ('bronze', 'silver', 'gold')
     AND t.table_type = 'MANAGED'
-GROUP BY 1, 2
 ORDER BY size_gb DESC
 LIMIT 20;
 
@@ -234,19 +289,17 @@ LIMIT 20;
 -- Visualization: Counters or Table
 SELECT 
     'Total Runs (30d)' as metric,
-    COUNT(*)::STRING as value
+    CAST(COUNT(*) AS STRING) as value
 FROM system.lakeflow.job_runs
-WHERE job_name LIKE '%Tix Master ETL Pipeline%'
-    AND start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE start_time >= CURRENT_DATE - INTERVAL 30 DAYS
 
 UNION ALL
 
 SELECT 
     'Success Rate (30d)' as metric,
-    CONCAT(ROUND(100.0 * SUM(CASE WHEN result_state = 'SUCCESS' THEN 1 ELSE 0 END) / COUNT(*), 1), '%') as value
+    CONCAT(CAST(ROUND(100.0 * SUM(CASE WHEN result_state = 'SUCCESS' THEN 1 ELSE 0 END) / COUNT(*), 1) AS STRING), '%') as value
 FROM system.lakeflow.job_runs
-WHERE job_name LIKE '%Tix Master ETL Pipeline%'
-    AND start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE start_time >= CURRENT_DATE - INTERVAL 30 DAYS
 
 UNION ALL
 
@@ -254,21 +307,19 @@ SELECT
     'Avg Duration (mins)' as metric,
     CAST(ROUND(AVG(TIMESTAMPDIFF(MINUTE, start_time, end_time)), 1) AS STRING) as value
 FROM system.lakeflow.job_runs
-WHERE job_name LIKE '%Tix Master ETL Pipeline%'
-    AND start_time >= CURRENT_DATE - INTERVAL 30 DAYS
+WHERE start_time >= CURRENT_DATE - INTERVAL 30 DAYS
     AND result_state = 'SUCCESS';
 
 -- ============================================================
--- HOW TO USE THESE QUERIES
+-- NOTES ON SCHEMA FIXES
 -- ============================================================
 -- 
--- 1. Navigate to SQL Warehouses in Databricks
--- 2. Click "Queries" in the left sidebar
--- 3. Create a new query for each section above
--- 4. Copy the SQL and save with the specified name
--- 5. Add the recommended visualization type
--- 6. Create a new dashboard and add all query visualizations
--- 7. Arrange them using the layout guide in DASHBOARD_SETUP.md
+-- Fixed issues:
+-- 1. Replaced `list_price` with proper join to `system.billing.list_prices`
+-- 2. Added `u.billing_origin_product = 'JOBS'` filter for job-related costs
+-- 3. Changed `::STRING` to `CAST(... AS STRING)` for proper SQL syntax
+-- 4. Removed `usage_metadata.job_name` filter (use job_id instead)
+-- 5. Added proper NULL checks for usage_metadata fields
+-- 6. Fixed table_storage_stats aggregation (no SUM needed, already aggregated)
 -- 
 -- ============================================================
-
