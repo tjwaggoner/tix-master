@@ -6,8 +6,11 @@ AI-powered Q&A system for Ticketmaster events using Retrieval Augmented Generati
 
 - **`setup_vector_search.py`** - Creates vector search endpoint and index (one-time setup)
 - **`deploy_serving_endpoint.py`** - Creates MLflow model and serving endpoint for API access
-- **`webapp.py`** - Gradio web application for interactive querying
+- **`app.py`** - Gradio web app for Databricks Apps (permanent deployment)
+- **`webapp.py`** - Gradio notebook for ad-hoc testing (temporary URLs)
 - **`sync_vector_index.py`** - Auto-sync vector embeddings (runs in pipeline after ETL)
+- **`requirements.txt`** - Python dependencies for Databricks Apps
+- **`DATABRICKS_APP_SETUP.md`** - Step-by-step app configuration guide
 
 ## 🚀 Quick Start
 
@@ -28,12 +31,25 @@ AI-powered Q&A system for Ticketmaster events using Retrieval Augmented Generati
 
 **Wait for endpoint to be ready** (~5-10 minutes)
 
-### Step 3: Launch Web App
+### Step 3: Deploy Web App
+
+**Option A: Databricks Apps (Recommended - Permanent)**
+
+1. Go to **Compute** → **Apps** in Databricks
+2. Create new app or use existing: `events-ai-rag`
+3. Set source file: `src/ai/rag/app.py`
+4. Set requirements: `src/ai/rag/requirements.txt`
+5. Start the app
+6. Get permanent URL to share with team
+
+See `DATABRICKS_APP_SETUP.md` for detailed configuration steps.
+
+**Option B: Notebook (Quick Testing - Temporary)**
 
 1. Open `webapp.py` in Databricks
 2. Run all cells
-3. A shareable URL will appear - open it in your browser
-4. Ask questions about events!
+3. A temporary shareable URL will appear
+4. URL expires when notebook is stopped
 
 ## 💬 Example Questions
 

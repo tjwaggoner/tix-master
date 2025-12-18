@@ -1,37 +1,17 @@
-# Databricks notebook source
 """
-Event RAG Web Application
+Event RAG Web Application for Databricks Apps
 Simple web interface to query the RAG model serving endpoint
 """
 
-# COMMAND ----------
-
-# MAGIC %pip install gradio --quiet
-
-# COMMAND ----------
-
-dbutils.library.restartPython()
-
-# COMMAND ----------
-
 import gradio as gr
 from databricks.sdk import WorkspaceClient
-import pandas as pd
-
-# COMMAND ----------
+import os
 
 # Configuration
 ENDPOINT_NAME = "event-rag-assistant"
 
 # Initialize Databricks client
 w = WorkspaceClient()
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Define Query Function
-
-# COMMAND ----------
 
 def ask_event_question(question: str) -> str:
     """
@@ -62,13 +42,6 @@ def ask_event_question(question: str) -> str:
             
     except Exception as e:
         return f"Error querying endpoint: {str(e)}\n\nMake sure the endpoint '{ENDPOINT_NAME}' is deployed and ready."
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Create Gradio Interface
-
-# COMMAND ----------
 
 # Example questions for users
 examples = [
@@ -101,29 +74,12 @@ demo = gr.Interface(
     allow_flagging="never"
 )
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Launch Web App
-
-# COMMAND ----------
-
-# Launch the app
-# This will create a public URL you can share
-demo.launch(share=True, server_port=7860)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ### 🎉 Web App is Running!
-# MAGIC 
-# MAGIC The app is now accessible via the URL shown above.
-# MAGIC 
-# MAGIC **To stop the app:**
-# MAGIC - Interrupt/stop this cell
-# MAGIC - Or close the notebook
-# MAGIC 
-# MAGIC **To make it permanent:**
-# MAGIC - Deploy as a Databricks App (Apps feature)
-# MAGIC - Or use Databricks ML Model Serving with a custom frontend
+if __name__ == "__main__":
+    # Launch the app for Databricks Apps
+    # Databricks Apps expects the app to listen on 0.0.0.0:8080
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=8080,
+        share=False
+    )
 
