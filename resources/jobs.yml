@@ -109,25 +109,6 @@ resources:
       # Retry policy
       max_concurrent_runs: 1
       timeout_seconds: 14400  # 4 hours
-    
-    # Manual Bronze layer refresh (for testing)
-    tix_master_bronze_refresh:
-      name: "[${bundle.target}] Tix Master Bronze Refresh"
-      
-      # Permissions
-      permissions:
-        - level: CAN_MANAGE
-          user_name: cassi.sullivan@databricks.com
-        - level: CAN_MANAGE
-          user_name: alexander.booth@databricks.com
-      
-      tasks:
-        - task_key: refresh_bronze
-          notebook_task:
-            notebook_path: ../src/bronze/bronze_auto_loader.py
-      
-      max_concurrent_runs: 1
-      timeout_seconds: 3600
 
     ## TODO: To uncomment, please deploy to a classic workspace, not a serverless workspace.
     # # Creation of Genie Space
