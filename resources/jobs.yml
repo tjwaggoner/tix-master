@@ -106,3 +106,35 @@ resources:
       
       max_concurrent_runs: 1
       timeout_seconds: 3600
+
+    ## TODO: To uncomment, please deploy to a classic workspace, not a serverless workspace.
+    # # Creation of Genie Space
+    # provision_genie_space:
+    #   name: "[${bundle.target}] Provision Genie Space"
+      
+    #   permissions:
+    #     - level: CAN_MANAGE
+    #       user_name: cassi.sullivan@databricks.com
+      
+    #   tasks:
+    #     - task_key: create_or_get_space
+    #       spark_python_task:
+    #         python_file: ../src/ai/create_genie_space.py
+    #       new_cluster:
+    #         spark_version: "15.4.x-scala2.12"
+    #         node_type_id: "i3.xlarge"
+    #         num_workers: 0
+    #         spark_conf:
+    #           "spark.databricks.cluster.profile": "singleNode"
+    #           "spark.master": "local[*]"
+    #         custom_tags:
+    #           ResourceClass: "SingleNode"
+    #       libraries:
+    #         - pypi:
+    #             package: requests>=2.31.0
+    #         - pypi:
+    #             package: PyYAML>=6.0.0
+    #       # Pass inputs via environment variables; set these when running the job
+      
+    #   max_concurrent_runs: 1
+    #   timeout_seconds: 1800
