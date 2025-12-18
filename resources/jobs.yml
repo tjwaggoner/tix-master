@@ -107,16 +107,12 @@ resources:
           timeout_seconds: 1800
         
         # Task 8: Sync RAG vector index with new events
-        # NOTE: This task will fail until you run src/ai/rag_assistant.py to create the vector index
-        # Uncomment after creating the index manually
-        # - task_key: sync_vector_index
-        #   depends_on:
-        #     - task_key: call_event_summary
-        #   sql_task:
-        #     file:
-        #       path: ../src/ai/sync_vector_index.sql
-        #     warehouse_id: "${var.warehouse_id}"
-        #   timeout_seconds: 600
+        - task_key: sync_vector_index
+          depends_on:
+            - task_key: call_event_summary
+          notebook_task:
+            notebook_path: ../src/ai/sync_vector_index.py
+          timeout_seconds: 600
       
       # Retry policy
       max_concurrent_runs: 1
