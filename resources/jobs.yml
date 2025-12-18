@@ -17,6 +17,7 @@ resources:
       email_notifications:
         on_failure:
           - ${workspace.current_user.userName}
+          - tanner.waggoner@databricks.com
       
       # Schedule: Run daily at 2 AM
       schedule:
