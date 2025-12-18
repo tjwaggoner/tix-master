@@ -70,7 +70,7 @@ resources:
             - task_key: create_sp_data_quality
           sql_task:
             file:
-              path: ../sql/call_data_quality_checks.sql
+              path: ../sql/stored_procedures/call_data_quality_checks.sql
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
         
@@ -102,7 +102,7 @@ resources:
             - task_key: create_sp_event_summary
           sql_task:
             file:
-              path: ../sql/call_event_summary.sql
+              path: ../sql/stored_procedures/call_event_summary.sql
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 1800
       
