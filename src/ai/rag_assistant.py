@@ -226,16 +226,22 @@ def generate_response(query: str, context_docs: list) -> str:
     
     Args:
         query: User's question
-        context_docs: Retrieved relevant documents
+        context_docs: Retrieved relevant documents (list of lists from vector search)
     
     Returns:
         Generated response
     """
-    # Format context
-    context = "\n\n".join([
-        f"Event {i+1}: {doc['event_text']}"
-        for i, doc in enumerate(context_docs)
-    ])
+    # Format context - handle vector search result format
+    # context_docs is a list of lists: [[event_id, event_name, date, venue, city, state, event_text], ...]
+    formatted_events = []
+    for i, doc in enumerate(context_docs):
+        if isinstance(doc, (list, tuple)) and len(doc) >= 7:
+            # doc[6] is event_text (last column)
+            formatted_events.append(f"Event {i+1}: {doc[6]}")
+        elif isinstance(doc, dict) and 'event_text' in doc:
+            formatted_events.append(f"Event {i+1}: {doc['event_text']}")
+    
+    context = "\n\n".join(formatted_events)
     
     # Create prompt
     prompt = f"""You are a helpful assistant for Ticketmaster event information.
