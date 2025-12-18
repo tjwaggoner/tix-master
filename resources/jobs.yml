@@ -10,6 +10,8 @@ resources:
       permissions:
         - level: CAN_MANAGE
           user_name: cassi.sullivan@databricks.com
+        - level: CAN_MANAGE
+          user_name: alexander.booth@databricks.com
       
       # Email notifications
       email_notifications:
@@ -98,6 +100,8 @@ resources:
       permissions:
         - level: CAN_MANAGE
           user_name: cassi.sullivan@databricks.com
+        - level: CAN_MANAGE
+          user_name: alexander.booth@databricks.com
       
       tasks:
         - task_key: refresh_bronze
