@@ -131,32 +131,48 @@ vsc = VectorSearchClient()
 
 # COMMAND ----------
 
-# Create endpoint if it doesn't exist
+# Check if endpoint exists, create if not
 try:
-    vsc.create_endpoint(
-        name=VECTOR_SEARCH_ENDPOINT,
-        endpoint_type="STANDARD"
-    )
-    print(f"Created endpoint: {VECTOR_SEARCH_ENDPOINT}")
-except Exception as e:
-    print(f"Endpoint may already exist: {e}")
+    endpoint = vsc.get_endpoint(name=VECTOR_SEARCH_ENDPOINT)
+    print(f"✓ Endpoint '{VECTOR_SEARCH_ENDPOINT}' already exists")
+except Exception:
+    # Endpoint doesn't exist, create it
+    try:
+        vsc.create_endpoint(
+            name=VECTOR_SEARCH_ENDPOINT,
+            endpoint_type="STANDARD"
+        )
+        print(f"✓ Created endpoint: {VECTOR_SEARCH_ENDPOINT}")
+    except Exception as e:
+        print(f"⚠️  Error creating endpoint: {e}")
 
 # COMMAND ----------
 
-# Create vector search index
+# Check if index exists, create if not
+index_full_name = f"{CATALOG}.{SCHEMA}.{INDEX_NAME}"
 try:
-    index = vsc.create_delta_sync_index(
+    index = vsc.get_index(
         endpoint_name=VECTOR_SEARCH_ENDPOINT,
-        source_table_name=f"{CATALOG}.{SCHEMA}.event_documents",
-        index_name=f"{CATALOG}.{SCHEMA}.{INDEX_NAME}",
-        pipeline_type="TRIGGERED",
-        primary_key="event_id",
-        embedding_source_column="event_text",
-        embedding_model_endpoint_name=EMBEDDING_MODEL
+        index_name=index_full_name
     )
-    print(f"Created index: {INDEX_NAME}")
-except Exception as e:
-    print(f"Index creation error: {e}")
+    print(f"✓ Index '{index_full_name}' already exists")
+    print("  To recreate the index, drop it first:")
+    print(f"  DROP INDEX {index_full_name};")
+except Exception:
+    # Index doesn't exist, create it
+    try:
+        index = vsc.create_delta_sync_index(
+            endpoint_name=VECTOR_SEARCH_ENDPOINT,
+            source_table_name=f"{CATALOG}.{SCHEMA}.event_documents",
+            index_name=index_full_name,
+            pipeline_type="TRIGGERED",
+            primary_key="event_id",
+            embedding_source_column="event_text",
+            embedding_model_endpoint_name=EMBEDDING_MODEL
+        )
+        print(f"✓ Created index: {INDEX_NAME}")
+    except Exception as e:
+        print(f"⚠️  Error creating index: {e}")
 
 # COMMAND ----------
 
