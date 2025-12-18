@@ -368,24 +368,3 @@ if user_question:
         <p>{result['answer']}</p>
     </div>
     """)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Maintenance
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Refresh vector index when new events are added
-# MAGIC -- This can be automated with a job
-# MAGIC ALTER INDEX ticket_master.gold.events_index SYNC;
-
-# COMMAND ----------
-
-# Monitor index status
-index_status = vsc.get_index(
-    endpoint_name=VECTOR_SEARCH_ENDPOINT,
-    index_name=f"{CATALOG}.{SCHEMA}.{INDEX_NAME}"
-)
-print(index_status)
