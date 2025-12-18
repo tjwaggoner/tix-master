@@ -1,1 +1,0 @@
-REFRESH INDEX ticket_master.gold.events_index
