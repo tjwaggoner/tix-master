@@ -112,7 +112,7 @@ resources:
             - task_key: call_event_summary
           sql_task:
             file:
-              path: ../sql/sync_vector_index.sql
+              path: ../src/ai/sync_vector_index.sql
             warehouse_id: "${var.warehouse_id}"
           timeout_seconds: 600
       

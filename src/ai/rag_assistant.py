@@ -53,6 +53,15 @@ LLM_MODEL = "databricks-meta-llama-3-1-70b-instruct"
 
 # COMMAND ----------
 
+# Set default catalog and schema
+spark.sql(f"USE CATALOG {CATALOG}")
+spark.sql(f"USE SCHEMA {SCHEMA}")
+
+print(f"✓ Using catalog: {CATALOG}")
+print(f"✓ Using schema: {SCHEMA}")
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC ## Step 1: Prepare Event Documents
 
@@ -100,6 +109,15 @@ display(event_documents.limit(5))
 
 # Save event documents to a table
 event_documents.write.mode("overwrite").saveAsTable(f"{CATALOG}.{SCHEMA}.event_documents")
+
+# COMMAND ----------
+
+# Enable Change Data Feed (required for Vector Search Delta Sync)
+spark.sql(f"""
+  ALTER TABLE {CATALOG}.{SCHEMA}.event_documents 
+  SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
+""")
+print("✓ Change Data Feed enabled on event_documents table")
 
 # COMMAND ----------
 
