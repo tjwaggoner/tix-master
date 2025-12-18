@@ -161,14 +161,24 @@ display(results)
 # COMMAND ----------
 
 # Set up MLflow
+import os
 mlflow.set_registry_uri("databricks-uc")
+
+# Set tracking URI to current workspace
+mlflow.set_tracking_uri("databricks")
+
 model_name = f"{CATALOG}.{SCHEMA}.event_rag_model"
 
 # Log and register the model
 with mlflow.start_run(run_name="event_rag_model") as run:
     
+    # Log model configuration as parameters for reference
+    mlflow.log_param("vector_search_endpoint", VECTOR_SEARCH_ENDPOINT)
+    mlflow.log_param("index_name", f"{CATALOG}.{SCHEMA}.{INDEX_NAME}")
+    mlflow.log_param("llm_model", LLM_MODEL)
+    
     # Log the model
-    mlflow.pyfunc.log_model(
+    model_info = mlflow.pyfunc.log_model(
         artifact_path="model",
         python_model=EventRAGModel(),
         registered_model_name=model_name,
@@ -177,13 +187,15 @@ with mlflow.start_run(run_name="event_rag_model") as run:
             results
         ),
         pip_requirements=[
-            "databricks-vectorsearch",
-            "databricks-sdk"
+            "databricks-vectorsearch>=0.30",
+            "databricks-sdk>=0.18.0",
+            "mlflow>=2.10.0"
         ]
     )
     
     print(f"✓ Model registered: {model_name}")
     print(f"  Run ID: {run.info.run_id}")
+    print(f"  Model URI: {model_info.model_uri}")
 
 # COMMAND ----------
 
@@ -194,10 +206,21 @@ with mlflow.start_run(run_name="event_rag_model") as run:
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import ServedEntityInput, EndpointCoreConfigInput
+from mlflow.tracking import MlflowClient
 
 w = WorkspaceClient()
+mlflow_client = MlflowClient()
 
 endpoint_name = "event-rag-assistant"
+
+# Get the latest model version
+latest_versions = mlflow_client.get_latest_versions(model_name, stages=["None"])
+if latest_versions:
+    latest_version = latest_versions[0].version
+else:
+    latest_version = "1"
+
+print(f"Using model version: {latest_version}")
 
 # Create or update endpoint
 try:
@@ -208,7 +231,7 @@ try:
             served_entities=[
                 ServedEntityInput(
                     entity_name=model_name,
-                    entity_version="1",
+                    entity_version=latest_version,
                     workload_size="Small",
                     scale_to_zero_enabled=True
                 )
@@ -225,7 +248,7 @@ except Exception as e:
             served_entities=[
                 ServedEntityInput(
                     entity_name=model_name,
-                    entity_version="1",
+                    entity_version=latest_version,
                     workload_size="Small",
                     scale_to_zero_enabled=True
                 )
@@ -233,7 +256,8 @@ except Exception as e:
         )
         print(f"✓ Updated serving endpoint: {endpoint_name}")
     else:
-        print(f"Error: {e}")
+        print(f"Error creating endpoint: {e}")
+        raise
 
 # COMMAND ----------
 
