@@ -359,6 +359,79 @@ All stored procedure executions are logged to `gold.etl_log`:
 4. **Use service principals** for staging/prod
 5. **Grant least-privilege** access via Unity Catalog
 
+## 🤖 AI/RAG Assistant
+
+The project includes a **RAG (Retrieval Augmented Generation)** assistant that enables natural language queries about events.
+
+### How It Works
+
+```
+User Question: "Rock concerts in LA under $100"
+       ↓
+1. Semantic Search (Vector Search)
+   → Finds similar events based on meaning
+       ↓
+2. Retrieved Context (Top 5 events)
+   → Event details with venue, date, price
+       ↓
+3. LLM Generation (Llama 3.1)
+   → Generates natural language answer
+       ↓
+Answer: "I found 3 rock concerts in LA under $100: ..."
+```
+
+### Components
+
+- **Vector Search**: Creates embeddings of event descriptions
+  - Endpoint: `ticket_master_vector_search`
+  - Embedding Model: `databricks-bge-large-en`
+  - Source Table: `gold.event_documents`
+  
+- **LLM**: Generates responses using Foundation Models
+  - Model: `databricks-meta-llama-3-1-70b-instruct`
+  - Temperature: 0.7 for conversational responses
+  
+- **Event Documents**: Combines data from star schema
+  - Event name, type, date
+  - Venue, location (city, state, country)
+  - Attraction, genre
+  - Price range
+
+### Running the RAG Assistant
+
+1. **Run the ETL pipeline** to populate star schema tables
+2. **Open the RAG notebook**: `src/ai/rag_assistant.py`
+3. **Execute cells** to:
+   - Create event documents table
+   - Set up Vector Search endpoint and index
+   - Test queries
+
+### Example Queries
+
+```python
+# Natural language questions
+ask_event_assistant("What concerts are happening in Los Angeles next weekend?")
+ask_event_assistant("Are there any sports events in New York in December?")
+ask_event_assistant("Show me rock concerts with tickets under $100")
+ask_event_assistant("What are the most popular venues for music events?")
+```
+
+### Interactive Mode
+
+The notebook includes a widget for interactive querying:
+- Enter question in the widget
+- Get formatted response with relevant event details
+- No SQL knowledge required!
+
+### Maintenance
+
+```sql
+-- Refresh vector index when new events are added
+ALTER INDEX ticket_master.gold.events_index SYNC;
+```
+
+The index can be automatically synced when new data is loaded into the pipeline.
+
 ## 📖 Additional Resources
 
 - [Databricks Medallion Architecture](https://www.databricks.com/glossary/medallion-architecture)
