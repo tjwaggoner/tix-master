@@ -10,6 +10,7 @@ Fetches all upcoming events and reference data (venues, attractions, classificat
 Run this manually ONCE before starting the scheduled incremental job.
 
 Rate Limiting: Configured per Ticketmaster API constraints (5 req/sec, size×page<1000).
+Note: Testing revealed undocumented max page size of ~200 (larger sizes return 0 events).
 See API_INFO.md for details.
 """
 

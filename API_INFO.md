@@ -34,15 +34,26 @@ Total per chunk = 800  # 200 × 4 = 800 (stays under 1000 limit)
 
 **Page size** = Number of records returned in a single API request
 
+**IMPORTANT: Undocumented Maximum Page Size**
+
+Testing revealed that Ticketmaster has an **undocumented maximum page size of ~200**:
+- `size=200`: Returns data successfully ✓
+- `size=500`: Returns 0 events ✗
+- `size=1000`: Returns 0 events ✗
+
+While the official documentation states `size × page < 1000`, the API silently rejects or caps requests with `size > 200`.
+
 **Trade-offs:**
 
-| Page Size | API Calls (for 1000 records) | Speed | Memory |
-|-----------|------------------------------|-------|--------|
-| 50 | 20 requests | Slower | Lower |
-| 200 (ours) | 5 requests | Faster | Moderate |
-| 500 | 2 requests | Fastest | Higher |
+| Page Size | API Calls (for 1000 records) | Speed | Memory | Works? |
+|-----------|------------------------------|-------|--------|--------|
+| 50 | 20 requests | Slower | Lower | ✓ |
+| 200 (ours) | 5 requests | Faster | Moderate | ✓ |
+| 500 | 2 requests | Fastest | Higher | ✗ No data |
+| 1000 | 1 request | Fastest | Highest | ✗ No data |
 
 **Why we chose 200:**
+- **Maximum supported page size** based on API testing
 - Minimizes API calls (5x fewer than size=50)
 - Stays safely under pagination limit (200×4=800 < 1000)
 - Respects rate limits (fewer requests = less likely to hit 5/sec limit)

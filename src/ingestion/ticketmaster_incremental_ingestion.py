@@ -6,6 +6,7 @@ Fetches NEW data from Ticketmaster API since the last job run.
 Lands raw JSON files to Unity Catalog Volumes for processing in the Bronze layer.
 
 Rate Limiting: Configured per Ticketmaster API constraints (5 req/sec, size×page<1000).
+Note: Testing revealed undocumented max page size of ~200 (larger sizes return 0 events).
 See API_INFO.md for details.
 """
 
