@@ -2,6 +2,26 @@
 
 A data lakehouse implementation for Ticketmaster API data using Databricks Unity Catalog with Bronze/Silver/Gold medallion architecture, deployed via Databricks Asset Bundles (DAB).
 
+## 🚀 Quick Start
+
+### Two-Phase Data Loading Strategy
+
+This pipeline uses a **two-phase approach** for data ingestion:
+
+1. **📥 Historical Ingestion** (One-Time Manual Run)
+   - **When**: Run once before starting the scheduled job
+   - **What**: Loads 2 years historical + 1 year future events
+   - **Where**: `src/ingestion/ticketmaster_historical_ingestion.py`
+   - **How**: Open in Databricks workspace UI and click "Run All"
+   
+2. **🔄 Incremental Ingestion** (Daily Scheduled Job)
+   - **When**: Runs automatically daily at 2 AM PST
+   - **What**: Fetches only new/updated data since last run
+   - **Where**: `src/ingestion/ticketmaster_incremental_ingestion.py`
+   - **How**: Automatically triggered by the scheduled job
+
+> ⚠️ **IMPORTANT**: The historical ingestion is **NOT** part of the scheduled job. Run it manually **ONCE** before starting the daily pipeline.
+
 ## 🏗️ Architecture Overview
 
 This project implements a complete data pipeline with three layers:
@@ -70,29 +90,55 @@ This project implements a complete data pipeline with three layers:
 
 ## 📊 ETL Pipeline
 
+### Scheduled Job (Daily Incremental Updates)
+
 The pipeline runs as a Databricks Job with the following tasks:
 
 ```
-Task 0: ingest_ticketmaster_data
-   ↓  (Fetch data from API → Save to Volume)
+Task 0: create_etl_log_table
+   ↓  (Create ETL logging table)
+
+Task 1: ingest_ticketmaster_data (INCREMENTAL)
+   ↓  (Fetch NEW data from API since last run → Save to Volume)
    
-Task 1: bronze_auto_loader
+Task 2: bronze_auto_loader
    ↓  (Stream JSON → Delta tables)
    
-Task 2: silver_transformations
+Task 3: silver_transformations
    ↓  (Normalize → Apply constraints)
    
-Task 3: data_quality_checks
+Task 4: data_quality_checks
    ↓  (7 automated validation rules)
    
-Task 4: gold_star_schema
+Task 5: gold_star_schema
    ↓  (Build star schema → MERGE facts)
    
-Task 5: generate_event_summary
+Task 6: generate_event_summary
    ↓  (Monthly KPI aggregations)
 ```
 
 **Schedule**: Daily at 2 AM PST (configurable in `resources/jobs.yml`)
+
+### ⚠️ Historical Ingestion (One-Time Manual Run)
+
+**Before running the scheduled job for the first time**, you must manually run the historical ingestion notebook to populate the initial dataset:
+
+```bash
+# Navigate to your Databricks workspace UI
+# Go to: Workspace → Users → [your-user] → .bundle → tix-master → dev → files → src → ingestion
+# Open and run: ticketmaster_historical_ingestion.py
+```
+
+**What it does:**
+- Fetches 2 years of historical data + 1 year future events
+- Loads all venues, attractions, and classifications
+- Creates Unity Catalog resources (catalog, schema, volume)
+- Writes data to volumes for Bronze layer processing
+
+**Important:**
+- ✅ Run this **ONCE** before starting the scheduled job
+- ⏭️ **DO NOT** add this to the scheduled job (it fetches too much data)
+- 🔄 After this initial load, the scheduled job handles incremental updates
 
 ## ✨ Features
 
@@ -182,12 +228,37 @@ databricks bundle validate
 
 # Deploy all resources to Databricks
 databricks bundle deploy
+```
 
-# Run the ETL pipeline
+### 4. Run Historical Ingestion (One-Time Setup)
+
+**⚠️ IMPORTANT: Run this ONCE before starting the scheduled job**
+
+1. Navigate to your Databricks workspace UI
+2. Go to: **Workspace** → **Users** → **[your-user]** → **.bundle** → **tix-master** → **dev** → **files** → **src** → **ingestion**
+3. Open `ticketmaster_historical_ingestion.py`
+4. Click **Run All** to execute the notebook
+
+This will:
+- ✅ Create Unity Catalog resources (catalog, schema, volume)
+- ✅ Fetch 2 years of historical events + 1 year future events
+- ✅ Load all venues, attractions, and classifications
+- ✅ Populate the volumes for Bronze layer processing
+
+**Duration**: 20-30 minutes depending on data volume and API response times.
+
+### 5. Start the Scheduled Pipeline
+
+After the historical ingestion completes, run the incremental ETL pipeline:
+
+```bash
+# Run the full ETL pipeline (incremental ingestion + transformations)
 databricks bundle run tix_master_etl_pipeline
 ```
 
-### 4. Monitor Your Pipeline
+The pipeline will now run daily at 2 AM PST, fetching only new/updated data since the last run.
+
+### 6. Monitor Your Pipeline
 
 View job status in the Databricks UI:
 - Navigate to **Workflows**
@@ -208,7 +279,8 @@ tix-master/
 │   └── jobs.yml                # Job and task definitions
 ├── src/
 │   ├── ingestion/              # API ingestion notebooks
-│   │   └── ticketmaster_ingestion_notebook.py
+│   │   ├── ticketmaster_historical_ingestion.py  # ONE-TIME manual run
+│   │   └── ticketmaster_incremental_ingestion.py # Scheduled daily
 │   ├── bronze/                 # Bronze layer notebooks
 │   │   └── bronze_auto_loader.py
 │   ├── silver/                 # Silver layer transformation
@@ -274,6 +346,16 @@ databricks bundle deploy
 # 3. Run the updated pipeline
 databricks bundle run tix_master_etl_pipeline
 ```
+
+### Re-running Historical Ingestion
+
+If you need to reload all historical data (e.g., after dropping tables):
+
+1. Navigate to Databricks workspace UI
+2. Open `src/ingestion/ticketmaster_historical_ingestion.py`
+3. Click **Run All**
+
+**⚠️ Note:** This notebook is **NOT** part of the scheduled job. Only run it manually when needed.
 
 ### Running Individual Tasks
 

@@ -25,7 +25,7 @@ BEGIN
   -- Error handler
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
-    SET execution_status = 'ERROR: ' || SQLERRM;
+    SET execution_status = 'ERROR: Event summary generation failed';
     SET total_reports = -1;
   END;
 

@@ -1,5 +1,7 @@
 -- Create ETL Log Table for tracking procedure executions
 
+USE CATALOG ticket_master;
+
 CREATE TABLE IF NOT EXISTS ticket_master.gold.etl_log (
   log_id BIGINT GENERATED ALWAYS AS IDENTITY,
   procedure_name STRING NOT NULL,

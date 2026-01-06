@@ -29,7 +29,7 @@ BEGIN
   -- Error handler
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
-    SET execution_status = 'ERROR: ' || SQLERRM;
+    SET execution_status = 'ERROR: Data quality check failed';
     SET total_checks = -1;
     SET failed_checks = -1;
     SET quality_score = 0.0;

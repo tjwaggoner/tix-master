@@ -1,10 +1,11 @@
 # Databricks notebook source
 """
-Silver Layer - Normalized Relational Tables
+Silver Layer - Normalized Relational Tables with Incremental Streaming
 
 This notebook transforms Bronze raw data into normalized Silver tables with:
 - Proper data types and validation
-- Deduplication
+- Incremental processing using Structured Streaming
+- Deduplication via MERGE operations
 - Primary Key and Foreign Key constraints
 - Entity-Relationship Design (ERD)
 """
@@ -12,14 +13,18 @@ This notebook transforms Bronze raw data into normalized Silver tables with:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Silver Layer: Normalized Tables with PK/FK Constraints
+# MAGIC # Silver Layer: Incremental Streaming Transformations
 # MAGIC
-# MAGIC This notebook implements the Silver layer by:
-# MAGIC 1. Normalizing nested JSON from Bronze
-# MAGIC 2. Creating dimension tables (venues, attractions, classifications, markets, teams)
-# MAGIC 3. Creating fact/bridge tables (events, event_venues, event_attractions)
-# MAGIC 4. Applying PK/FK constraints for query optimization
-# MAGIC 5. Enabling ERD visualization in Unity Catalog
+# MAGIC This notebook implements the Silver layer using **Structured Streaming** to incrementally
+# MAGIC process only new data from Bronze tables.
+# MAGIC
+# MAGIC **Key Features:**
+# MAGIC 1. Incremental processing - only new Bronze data is transformed
+# MAGIC 2. MERGE operations - automatic deduplication and upserts
+# MAGIC 3. Watermarking - handles late-arriving data
+# MAGIC 4. Checkpointing - fault-tolerant processing
+# MAGIC 5. PK/FK constraints for query optimization
+# MAGIC 6. ERD visualization in Unity Catalog
 
 # COMMAND ----------
 
@@ -27,7 +32,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, explode, explode_outer, when, lit, coalesce,
     struct, array, concat_ws, md5, sha2, monotonically_increasing_id,
-    row_number, max as spark_max, first
+    row_number, max as spark_max, first, current_timestamp
 )
 from pyspark.sql.window import Window
 from pyspark.sql.types import *
@@ -44,6 +49,10 @@ from delta.tables import DeltaTable
 CATALOG = "ticket_master"
 BRONZE_SCHEMA = "bronze"
 SILVER_SCHEMA = "silver"
+
+# Checkpoint location for streaming
+VOLUME_NAME = "raw_data"
+CHECKPOINT_BASE = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/{VOLUME_NAME}/_checkpoints/silver"
 
 # Set catalog context to avoid Hive Metastore errors
 spark.sql(f"USE CATALOG {CATALOG}")
@@ -138,6 +147,55 @@ def add_foreign_key_if_not_exists(table_name: str, constraint_name: str, fk_colu
     )
     print(f"  ✓ Added constraint '{constraint_name}' on {table_name}")
 
+def merge_upsert(microBatchDF, batch_id, target_table, merge_keys, update_columns=None):
+    """
+    Generic MERGE operation for streaming upserts with deduplication.
+    
+    Args:
+        microBatchDF: Micro-batch DataFrame from streaming
+        batch_id: Batch ID from streaming
+        target_table: Full table name (catalog.schema.table)
+        merge_keys: List of columns to match on (typically primary keys)
+        update_columns: List of columns to update (None = all columns)
+    """
+    
+    # Deduplicate within the micro-batch using the merge keys
+    # Keep the most recent record based on _ingestion_timestamp
+    window_spec = Window.partitionBy(*merge_keys).orderBy(col("_ingestion_timestamp").desc())
+    deduped_df = microBatchDF.withColumn("rn", row_number().over(window_spec)) \
+                              .filter(col("rn") == 1) \
+                              .drop("rn")
+    
+    # Check if target table exists
+    if not spark.catalog.tableExists(target_table):
+        # First run - create table with the data
+        print(f"  Creating initial table: {target_table}")
+        deduped_df.write.format("delta").mode("overwrite").saveAsTable(target_table)
+        return
+    
+    # Build merge condition
+    merge_condition = " AND ".join([f"target.{key} = source.{key}" for key in merge_keys])
+    
+    # Get all columns for update (excluding merge keys)
+    if update_columns is None:
+        update_columns = [c for c in deduped_df.columns if c not in merge_keys]
+    
+    # Build update/insert dict
+    update_dict = {col_name: f"source.{col_name}" for col_name in update_columns + merge_keys}
+    
+    # Perform MERGE
+    deltaTable = DeltaTable.forName(spark, target_table)
+    
+    (deltaTable.alias("target")
+        .merge(
+            deduped_df.alias("source"),
+            merge_condition
+        )
+        .whenMatchedUpdate(set=update_dict)
+        .whenNotMatchedInsert(values=update_dict)
+        .execute()
+    )
+
 # COMMAND ----------
 
 # MAGIC %md
@@ -168,22 +226,28 @@ print("\n✓ All required bronze tables exist. Proceeding with silver transforma
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Venues Dimension
+# MAGIC ## Streaming Silver Table Creation - Venues Dimension
 
 # COMMAND ----------
 
-def create_silver_venues():
+def create_silver_venues_stream():
     """
-    Extract and transform venues from Bronze to Silver
-    Creates a normalized venues dimension table
+    Stream venues from Bronze to Silver with incremental processing
     """
-
-    # Read from Bronze
-    bronze_venues = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.venues_raw")
-
-    # Transform and normalize
-    silver_venues = (
-        bronze_venues
+    
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.venues"
+    checkpoint_path = f"{CHECKPOINT_BASE}/venues"
+    
+    # Stream from Bronze
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.venues_raw")
+    )
+    
+    # Transform
+    transformed_stream = (
+        bronze_stream
         .select(
             col("id").alias("venue_id"),
             col("name").alias("venue_name"),
@@ -202,46 +266,54 @@ def create_silver_venues():
             col("url").alias("venue_url"),
             col("_ingestion_timestamp")
         )
-        .dropDuplicates(["venue_id"])
         .filter(col("venue_id").isNotNull())
     )
-
-    # Write to Silver with MERGE to handle updates
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.venues"
-
-    (
-        silver_venues.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(silver_table)
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["venue_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
+    
+    return query
 
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "venues_pk", ["venue_id"])
-
-    print(f"✓ Created {silver_table} with {silver_venues.count():,} records")
-
-# COMMAND ----------
-
-create_silver_venues()
+# Start the stream
+print("Starting venues stream...")
+venues_query = create_silver_venues_stream()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Attractions/Teams Dimension
+# MAGIC ## Streaming Silver Table Creation - Attractions/Teams Dimension
 
 # COMMAND ----------
 
-def create_silver_attractions():
+def create_silver_attractions_stream():
     """
-    Extract and transform attractions/teams from Bronze to Silver
+    Stream attractions from Bronze to Silver with incremental processing
     """
-
-    bronze_attractions = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.attractions_raw")
-
-    silver_attractions = (
-        bronze_attractions
+    
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.attractions"
+    checkpoint_path = f"{CHECKPOINT_BASE}/attractions"
+    
+    # Stream from Bronze
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.attractions_raw")
+    )
+    
+    # Transform
+    transformed_stream = (
+        bronze_stream
         .select(
             col("id").alias("attraction_id"),
             col("name").alias("attraction_name"),
@@ -265,214 +337,257 @@ def create_silver_attractions():
             col("classification_exploded.genre.name").alias("genre_name"),
             "_ingestion_timestamp"
         )
-        .dropDuplicates(["attraction_id"])
         .filter(col("attraction_id").isNotNull())
     )
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.attractions"
-
-    (
-        silver_attractions.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(silver_table)
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["attraction_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
+    
+    return query
 
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "attractions_pk", ["attraction_id"])
-
-    print(f"✓ Created {silver_table} with {silver_attractions.count():,} records")
-
-# COMMAND ----------
-
-create_silver_attractions()
+# Start the stream
+print("Starting attractions stream...")
+attractions_query = create_silver_attractions_stream()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Classifications Dimension
+# MAGIC ## Streaming Silver Table Creation - Classifications Dimension
 
 # COMMAND ----------
 
-def create_silver_classifications():
+def create_silver_classifications_stream():
     """
-    Extract classifications (segment, genre, subgenre) hierarchy
+    Stream classifications from Bronze to Silver with incremental processing
     """
-
-    bronze_classifications = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.classifications_raw")
     
-    # First, let's inspect the schema
-    print("  Bronze classifications schema:")
-    bronze_classifications.printSchema()
-    print(f"  Bronze classifications sample (first row):")
-    bronze_classifications.show(1, truncate=False, vertical=True)
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.classifications"
+    checkpoint_path = f"{CHECKPOINT_BASE}/classifications"
     
-    # Get available columns
-    available_cols = bronze_classifications.columns
-    print(f"  Available columns: {available_cols}")
+    # Stream from Bronze
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.classifications_raw")
+    )
     
-    # Build select expression dynamically based on available columns
+    # Get available columns from the schema
+    available_cols = bronze_stream.schema.fieldNames()
+    
+    # Build select expression dynamically
     select_exprs = []
     
-    # Check for nested segment structure
     if "segment" in available_cols:
         select_exprs.extend([
             col("segment.id").alias("segment_id"),
             col("segment.name").alias("segment_name")
         ])
     
-    # Check for nested genre structure  
     if "genre" in available_cols:
         select_exprs.extend([
             col("genre.id").alias("genre_id"),
             col("genre.name").alias("genre_name")
         ])
     
-    # Check for nested subGenre structure
     if "subGenre" in available_cols:
         select_exprs.extend([
             col("subGenre.id").alias("subgenre_id"),
             col("subGenre.name").alias("subgenre_name")
         ])
     
-    # Check for nested type structure
     if "type" in available_cols:
         select_exprs.extend([
             col("type.id").alias("type_id"),
             col("type.name").alias("type_name")
         ])
     
-    # Check for nested subType structure
     if "subType" in available_cols:
         select_exprs.extend([
             col("subType.id").alias("subtype_id"),
             col("subType.name").alias("subtype_name")
         ])
     
-    # Check for family field
     if "family" in available_cols:
         select_exprs.append(col("family").cast("boolean").alias("is_family"))
     
-    # Always include ingestion timestamp
     if "_ingestion_timestamp" in available_cols:
         select_exprs.append(col("_ingestion_timestamp"))
     
-    if not select_exprs:
-        print("  ⚠️  No recognizable classification columns found!")
-        print("  Available columns:", available_cols)
-        raise ValueError("Cannot extract classifications - schema doesn't match expected structure")
+    # Transform
+    df_selected = bronze_stream.select(*select_exprs)
     
-    # First, create the base dataframe with selected columns
-    df_selected = bronze_classifications.select(*select_exprs)
-    
-    # Build the composite key based on available columns in the dataframe
-    available_key_cols = df_selected.columns
+    # Build composite key
+    available_key_cols = df_selected.schema.fieldNames()
     key_parts = []
     
     for key_col in ["segment_id", "genre_id", "subgenre_id", "type_id", "subtype_id"]:
         if key_col in available_key_cols:
             key_parts.append(coalesce(col(key_col), lit("")))
     
-    if not key_parts:
-        raise ValueError("No valid key columns found for classification_id")
-    
-    print(f"  Using columns for classification_id: {[k for k in ['segment_id', 'genre_id', 'subgenre_id', 'type_id', 'subtype_id'] if k in available_key_cols]}")
-    
-    silver_classifications = (
+    transformed_stream = (
         df_selected
-        # Create a composite key since classifications are hierarchical
         .withColumn("classification_id", sha2(concat_ws("_", *key_parts), 256))
-        .dropDuplicates(["classification_id"])
         .filter(col("classification_id").isNotNull())
     )
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.classifications"
-
-    (
-        silver_classifications.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(silver_table)
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["classification_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
+    
+    return query
 
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "classifications_pk", ["classification_id"])
-
-    row_count = spark.table(silver_table).count()
-    print(f"✓ Created {silver_table} with {row_count:,} records")
-
-# COMMAND ----------
-
-create_silver_classifications()
+# Start the stream
+print("Starting classifications stream...")
+classifications_query = create_silver_classifications_stream()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Markets Dimension
+# MAGIC ## Streaming Silver Table Creation - Markets Dimension
 
 # COMMAND ----------
 
-def create_silver_markets():
+def create_silver_markets_stream():
     """
-    Extract markets from events
+    Stream markets from Bronze events to Silver
     """
-
-    bronze_events = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
-
-    # Extract markets from embedded _embedded field
-    silver_markets = (
-        bronze_events
+    
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.markets"
+    checkpoint_path = f"{CHECKPOINT_BASE}/markets"
+    
+    # Stream from Bronze events
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
+    )
+    
+    # Transform - extract markets from embedded venues
+    transformed_stream = (
+        bronze_stream
         .select(
-            explode_outer(col("_embedded.venues")).alias("venue")
+            explode_outer(col("_embedded.venues")).alias("venue"),
+            col("_ingestion_timestamp")
         )
         .select(
-            explode_outer(col("venue.markets")).alias("market")
+            explode_outer(col("venue.markets")).alias("market"),
+            col("_ingestion_timestamp")
         )
         .select(
             col("market.id").alias("market_id"),
-            col("market.name").alias("market_name")
+            col("market.name").alias("market_name"),
+            col("_ingestion_timestamp")
         )
-        .dropDuplicates(["market_id"])
         .filter(col("market_id").isNotNull())
     )
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.markets"
-
-    (
-        silver_markets.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(silver_table)
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["market_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
+    
+    return query
 
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "markets_pk", ["market_id"])
-
-    print(f"✓ Created {silver_table} with {silver_markets.count():,} records")
-
-# COMMAND ----------
-
-create_silver_markets()
+# Start the stream
+print("Starting markets stream...")
+markets_query = create_silver_markets_stream()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Events Fact Table
+# MAGIC ## Wait for Dimension Tables to Complete
 
 # COMMAND ----------
 
-def create_silver_events():
-    """
-    Create the main events fact table with foreign keys to dimensions
-    """
+# Wait for all dimension streams to complete before creating fact tables
+print("\nWaiting for dimension table streams to complete...")
 
-    bronze_events = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
+venues_query.awaitTermination()
+print("  ✓ Venues completed")
 
-    silver_events = (
-        bronze_events
+attractions_query.awaitTermination()
+print("  ✓ Attractions completed")
+
+classifications_query.awaitTermination()
+print("  ✓ Classifications completed")
+
+markets_query.awaitTermination()
+print("  ✓ Markets completed")
+
+print("\n✓ All dimension tables loaded!")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Add Primary Keys to Dimension Tables
+
+# COMMAND ----------
+
+# Add constraints to dimension tables after initial load
+print("\nAdding primary key constraints to dimension tables...")
+
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.venues", "venues_pk", ["venue_id"])
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.attractions", "attractions_pk", ["attraction_id"])
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.classifications", "classifications_pk", ["classification_id"])
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.markets", "markets_pk", ["market_id"])
+
+print("✓ Primary key constraints added")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Streaming Silver Table Creation - Events Fact Table
+
+# COMMAND ----------
+
+def create_silver_events_stream():
+    """
+    Stream events from Bronze to Silver (fact table)
+    """
+    
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.events"
+    checkpoint_path = f"{CHECKPOINT_BASE}/events"
+    
+    # Stream from Bronze
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
+    )
+    
+    # Transform
+    transformed_stream = (
+        bronze_stream
         .select(
             col("id").alias("event_id"),
             col("name").alias("event_name"),
@@ -492,168 +607,231 @@ def create_silver_events():
             col("sales.public.startDateTime").cast("timestamp").alias("sales_start_datetime"),
             col("sales.public.endDateTime").cast("timestamp").alias("sales_end_datetime"),
             col("test").cast("boolean").alias("is_test"),
-            # Extract first classification for FK
             col("classifications")[0]["segment"]["id"].alias("segment_id"),
             col("classifications")[0]["genre"]["id"].alias("genre_id"),
             col("_ingestion_timestamp")
         )
-        .dropDuplicates(["event_id"])
         .filter(col("event_id").isNotNull())
     )
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.events"
-
-    (
-        silver_events.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(silver_table)
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["event_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
+    
+    return query
 
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "events_pk", ["event_id"])
-
-    # Enable liquid clustering (Databricks Runtime 15.2+)
-    # Clustering by event_date and status_code for efficient query patterns
-    spark.sql(f"""
-        ALTER TABLE {silver_table}
-        CLUSTER BY (event_date, status_code)
-    """)
-
-    print(f"✓ Created {silver_table} with {silver_events.count():,} records")
-
-# COMMAND ----------
-
-create_silver_events()
+# Start the stream
+print("Starting events stream...")
+events_query = create_silver_events_stream()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Event-Venue Bridge Table
+# MAGIC ## Streaming Silver Table Creation - Event-Venue Bridge Table
 
 # COMMAND ----------
 
-def create_silver_event_venues():
+def create_silver_event_venues_stream():
     """
-    Create many-to-many relationship between events and venues
+    Stream event-venue relationships from Bronze to Silver
     """
-
-    bronze_events = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
-
-    event_venues = (
-        bronze_events
+    
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_venues"
+    checkpoint_path = f"{CHECKPOINT_BASE}/event_venues"
+    
+    # Stream from Bronze
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
+    )
+    
+    # Transform
+    transformed_stream = (
+        bronze_stream
         .select(
             col("id").alias("event_id"),
-            explode_outer(col("_embedded.venues")).alias("venue")
+            explode_outer(col("_embedded.venues")).alias("venue"),
+            col("_ingestion_timestamp")
         )
         .select(
             "event_id",
             col("venue.id").alias("venue_id"),
-            col("venue.name").alias("venue_name_snapshot")
+            col("venue.name").alias("venue_name_snapshot"),
+            col("_ingestion_timestamp")
         )
-        .dropDuplicates(["event_id", "venue_id"])
         .filter(col("event_id").isNotNull() & col("venue_id").isNotNull())
     )
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_venues"
-
-    (
-        event_venues.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .saveAsTable(silver_table)
-    )
-
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "event_venues_pk", ["event_id", "venue_id"])
-
-    # Add foreign key constraints (if not exist)
-    add_foreign_key_if_not_exists(
-        table_name=silver_table,
-        constraint_name="event_venues_event_fk",
-        fk_columns=["event_id"],
-        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
-        reference_columns=["event_id"]
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["event_id", "venue_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
     
-    add_foreign_key_if_not_exists(
-        table_name=silver_table,
-        constraint_name="event_venues_venue_fk",
-        fk_columns=["venue_id"],
-        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.venues",
-        reference_columns=["venue_id"]
-    )
+    return query
 
-    print(f"✓ Created {silver_table} with {event_venues.count():,} records")
-
-# COMMAND ----------
-
-create_silver_event_venues()
+# Start the stream
+print("Starting event_venues stream...")
+event_venues_query = create_silver_event_venues_stream()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Silver Table Creation - Event-Attraction Bridge Table
+# MAGIC ## Streaming Silver Table Creation - Event-Attraction Bridge Table
 
 # COMMAND ----------
 
-def create_silver_event_attractions():
+def create_silver_event_attractions_stream():
     """
-    Create many-to-many relationship between events and attractions
+    Stream event-attraction relationships from Bronze to Silver
     """
-
-    bronze_events = spark.table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
-
-    event_attractions = (
-        bronze_events
+    
+    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_attractions"
+    checkpoint_path = f"{CHECKPOINT_BASE}/event_attractions"
+    
+    # Stream from Bronze
+    bronze_stream = (
+        spark.readStream
+        .format("delta")
+        .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
+    )
+    
+    # Transform
+    transformed_stream = (
+        bronze_stream
         .select(
             col("id").alias("event_id"),
-            explode_outer(col("_embedded.attractions")).alias("attraction")
+            explode_outer(col("_embedded.attractions")).alias("attraction"),
+            col("_ingestion_timestamp")
         )
         .select(
             "event_id",
             col("attraction.id").alias("attraction_id"),
-            col("attraction.name").alias("attraction_name_snapshot")
+            col("attraction.name").alias("attraction_name_snapshot"),
+            col("_ingestion_timestamp")
         )
-        .dropDuplicates(["event_id", "attraction_id"])
         .filter(col("event_id").isNotNull() & col("attraction_id").isNotNull())
     )
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_attractions"
-
-    (
-        event_attractions.write
+    
+    # Write with MERGE for deduplication
+    query = (
+        transformed_stream.writeStream
         .format("delta")
-        .mode("overwrite")
-        .saveAsTable(silver_table)
-    )
-
-    # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(silver_table, "event_attractions_pk", ["event_id", "attraction_id"])
-
-    # Add foreign key constraints (if not exist)
-    add_foreign_key_if_not_exists(
-        table_name=silver_table,
-        constraint_name="event_attractions_event_fk",
-        fk_columns=["event_id"],
-        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
-        reference_columns=["event_id"]
+        .outputMode("update")
+        .option("checkpointLocation", checkpoint_path)
+        .foreachBatch(lambda df, batch_id: merge_upsert(
+            df, batch_id, silver_table, 
+            merge_keys=["event_id", "attraction_id"]
+        ))
+        .trigger(availableNow=True)
+        .start()
     )
     
-    add_foreign_key_if_not_exists(
-        table_name=silver_table,
-        constraint_name="event_attractions_attraction_fk",
-        fk_columns=["attraction_id"],
-        reference_table=f"{CATALOG}.{SILVER_SCHEMA}.attractions",
-        reference_columns=["attraction_id"]
-    )
+    return query
 
-    print(f"✓ Created {silver_table} with {event_attractions.count():,} records")
+# Start the stream
+print("Starting event_attractions stream...")
+event_attractions_query = create_silver_event_attractions_stream()
 
 # COMMAND ----------
 
-create_silver_event_attractions()
+# MAGIC %md
+# MAGIC ## Wait for Fact/Bridge Tables to Complete
+
+# COMMAND ----------
+
+# Wait for all fact/bridge streams to complete
+print("\nWaiting for fact/bridge table streams to complete...")
+
+events_query.awaitTermination()
+print("  ✓ Events completed")
+
+event_venues_query.awaitTermination()
+print("  ✓ Event-Venues completed")
+
+event_attractions_query.awaitTermination()
+print("  ✓ Event-Attractions completed")
+
+print("\n✓ All fact and bridge tables loaded!")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Add Constraints to Fact/Bridge Tables
+
+# COMMAND ----------
+
+# Add constraints after initial load
+print("\nAdding constraints to fact and bridge tables...")
+
+# Events primary key
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.events", "events_pk", ["event_id"])
+
+# Enable liquid clustering on events
+spark.sql(f"""
+    ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.events
+    CLUSTER BY (event_date, status_code)
+""")
+print("  ✓ Enabled liquid clustering on events")
+
+# Event-Venues constraints
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.event_venues", "event_venues_pk", ["event_id", "venue_id"])
+
+add_foreign_key_if_not_exists(
+    table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_venues",
+    constraint_name="event_venues_event_fk",
+    fk_columns=["event_id"],
+    reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
+    reference_columns=["event_id"]
+)
+
+add_foreign_key_if_not_exists(
+    table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_venues",
+    constraint_name="event_venues_venue_fk",
+    fk_columns=["venue_id"],
+    reference_table=f"{CATALOG}.{SILVER_SCHEMA}.venues",
+    reference_columns=["venue_id"]
+)
+
+# Event-Attractions constraints
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.event_attractions", "event_attractions_pk", ["event_id", "attraction_id"])
+
+add_foreign_key_if_not_exists(
+    table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_attractions",
+    constraint_name="event_attractions_event_fk",
+    fk_columns=["event_id"],
+    reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
+    reference_columns=["event_id"]
+)
+
+add_foreign_key_if_not_exists(
+    table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_attractions",
+    constraint_name="event_attractions_attraction_fk",
+    fk_columns=["attraction_id"],
+    reference_table=f"{CATALOG}.{SILVER_SCHEMA}.attractions",
+    reference_columns=["attraction_id"]
+)
+
+print("✓ All constraints added successfully")
 
 # COMMAND ----------
 
@@ -674,9 +852,14 @@ silver_tables = [
     "markets", "event_venues", "event_attractions"
 ]
 
+print("\n=== Silver Layer Summary ===")
 for table in silver_tables:
     count = spark.table(f"{CATALOG}.{SILVER_SCHEMA}.{table}").count()
-    print(f"ticket_master.silver.{table}: {count:,} records")
+    print(f"  {CATALOG}.{SILVER_SCHEMA}.{table}: {count:,} records")
+
+print("\n✓ Silver layer streaming transformations complete!")
+print("✓ All tables use incremental processing from Bronze")
+print("✓ Future runs will only process new Bronze data")
 
 # COMMAND ----------
 

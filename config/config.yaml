@@ -80,7 +80,3 @@ tables:
 ai_bi:
   genie:
     enabled: true
-  rag:
-    model_serving_endpoint: "databricks-meta-llama-3-1-70b-instruct"
-    vector_search_endpoint: "ticketmaster_events_index"
-    embedding_model: "databricks-bge-large-en"
