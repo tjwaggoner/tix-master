@@ -247,6 +247,29 @@ This will:
 
 **Duration**: 20-30 minutes depending on data volume and API response times.
 
+#### Historical Ingestion Performance Metrics
+
+Based on recent ingestion run:
+
+| Metric | Value |
+|--------|-------|
+| **Total Records** | 12,861 records |
+| **Events** | 11,244 records (87.05 MB) |
+| **Venues** | 800 records (2.40 MB) |
+| **Attractions** | 800 records (3.18 MB) |
+| **Classifications** | 17 records (0.47 MB) |
+| **Total Data Size** | 93.11 MB |
+| **Duration** | 48.1 seconds (~0.8 minutes) |
+| **Data Throughput** | **1.94 MB/s** (116 MB/min) |
+| **Record Throughput** | 267 records/second |
+| **Storage Location** | `/Volumes/ticket_master/bronze/raw_data` |
+
+**Key Takeaways for Scaling:**
+- The pipeline processes ~2 MB/s of JSON data
+- Can handle ~270 records/second end-to-end (API fetch → disk write)
+- Total historical load (2 years back + 1 year forward) completes in < 1 minute
+- Throughput is primarily limited by Ticketmaster API rate limits, not compute
+
 ### 5. Start the Scheduled Pipeline
 
 After the historical ingestion completes, run the incremental ETL pipeline:

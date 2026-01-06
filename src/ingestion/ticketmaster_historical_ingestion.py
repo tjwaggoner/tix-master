@@ -8,6 +8,9 @@ First-time full load of data from Ticketmaster API.
 Fetches all upcoming events and reference data (venues, attractions, classifications).
 
 Run this manually ONCE before starting the scheduled incremental job.
+
+Rate Limiting: Configured per Ticketmaster API constraints (5 req/sec, size×page<1000).
+See API_INFO.md for details.
 """
 
 # COMMAND ----------
