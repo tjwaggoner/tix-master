@@ -4,11 +4,11 @@
 
 ### Official Ticketmaster API Limits
 
-| Limit Type | Value |
-|------------|-------|
-| **Requests per second** | 5 requests/sec (hard limit) |
-| **Requests per day** | 5,000 requests/day (default quota) |
-| **Pagination constraint** | `size × page < 1000` |
+| Limit Type                  | Value                              |
+|-----------------------------|------------------------------------|
+| **Requests per second**     | 5 requests/sec (hard limit)        |
+| **Requests per day**        | 5,000 requests/day (default quota) |
+| **Pagination constraint**   | `size × page < 1000`               |
 
 ### Our Configuration
 
@@ -37,20 +37,20 @@ Total per chunk = 800  # 200 × 4 = 800 (stays under 1000 limit)
 **IMPORTANT: Undocumented Maximum Page Size**
 
 Testing revealed that Ticketmaster has an **undocumented maximum page size of ~200**:
-- `size=200`: Returns data successfully ✓
-- `size=500`: Returns 0 events ✗
-- `size=1000`: Returns 0 events ✗
+- `size=200`: Returns data successfully
+- `size=500`: Returns 0 events
+- `size=1000`: Returns 0 events
 
 While the official documentation states `size × page < 1000`, the API silently rejects or caps requests with `size > 200`.
 
 **Trade-offs:**
 
-| Page Size | API Calls (for 1000 records) | Speed | Memory | Works? |
-|-----------|------------------------------|-------|--------|--------|
-| 50 | 20 requests | Slower | Lower | ✓ |
-| 200 (ours) | 5 requests | Faster | Moderate | ✓ |
-| 500 | 2 requests | Fastest | Higher | ✗ No data |
-| 1000 | 1 request | Fastest | Highest | ✗ No data |
+| Page Size  | API Calls (for 1000 records) | Speed   | Memory   | Works?    |
+|------------|------------------------------|---------|----------|-----------|
+| 50         | 20 requests                  | Slower  | Lower    | Yes       |
+| 200 (ours) | 5 requests                   | Faster  | Moderate | Yes       |
+| 500        | 2 requests                   | Fastest | Higher   | No data   |
+| 1000       | 1 request                    | Fastest | Highest  | No data   |
 
 **Why we chose 200:**
 - **Maximum supported page size** based on API testing
@@ -127,14 +127,14 @@ While the official documentation states `size × page < 1000`, the API silently 
 
 Based on historical ingestion run (2 years back + 1 year forward):
 
-| Metric | Value |
-|--------|-------|
-| Total Records | 12,861 |
-| Total Data Size | 93.11 MB |
-| Duration | 48.1 seconds |
-| Data Throughput | 1.94 MB/s |
-| Record Throughput | 267 records/second |
-| API Calls | ~64 requests |
+| Metric             | Value              |
+|--------------------|--------------------|
+| Total Records      | 12,861             |
+| Total Data Size    | 93.11 MB           |
+| Duration           | 48.1 seconds       |
+| Data Throughput    | 1.94 MB/s          |
+| Record Throughput  | 267 records/second |
+| API Calls          | ~64 requests       |
 
 ## Optimization Strategy
 

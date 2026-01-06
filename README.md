@@ -251,18 +251,18 @@ This will:
 
 Based on recent ingestion run:
 
-| Metric | Value |
-|--------|-------|
-| **Total Records** | 12,861 records |
-| **Events** | 11,244 records (87.05 MB) |
-| **Venues** | 800 records (2.40 MB) |
-| **Attractions** | 800 records (3.18 MB) |
-| **Classifications** | 17 records (0.47 MB) |
-| **Total Data Size** | 93.11 MB |
-| **Duration** | 48.1 seconds (~0.8 minutes) |
-| **Data Throughput** | **1.94 MB/s** (116 MB/min) |
-| **Record Throughput** | 267 records/second |
-| **Storage Location** | `/Volumes/ticket_master/bronze/raw_data` |
+| Metric                 | Value                                     |
+|------------------------|-------------------------------------------|
+| **Total Records**      | 12,861 records                            |
+| **Events**             | 11,244 records (87.05 MB)                 |
+| **Venues**             | 800 records (2.40 MB)                     |
+| **Attractions**        | 800 records (3.18 MB)                     |
+| **Classifications**    | 17 records (0.47 MB)                      |
+| **Total Data Size**    | 93.11 MB                                  |
+| **Duration**           | 48.1 seconds (~0.8 minutes)               |
+| **Data Throughput**    | **1.94 MB/s** (116 MB/min)                |
+| **Record Throughput**  | 267 records/second                        |
+| **Storage Location**   | `/Volumes/ticket_master/bronze/raw_data` |
 
 **Key Takeaways for Scaling:**
 - The pipeline processes ~2 MB/s of JSON data
