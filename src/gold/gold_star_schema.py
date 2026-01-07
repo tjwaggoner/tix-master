@@ -205,8 +205,10 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- Create dim_venue with IDENTITY surrogate key
+# MAGIC -- venue_sk: Integer surrogate for performance
+# MAGIC -- venue_sk: Hash-based surrogate key from Silver (no auto-increment)
 # MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_venue (
-# MAGIC   venue_sk BIGINT GENERATED ALWAYS AS IDENTITY,
+# MAGIC   venue_sk STRING NOT NULL,
 # MAGIC   venue_id STRING NOT NULL,
 # MAGIC   venue_name STRING,
 # MAGIC   venue_type STRING,
@@ -230,14 +232,15 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_venue from Silver
+# MAGIC -- Populate dim_venue from Silver (using hash surrogate key)
 # MAGIC INSERT INTO ticket_master.gold.dim_venue (
-# MAGIC   venue_id, venue_name, venue_type, city, state, state_code,
+# MAGIC   venue_sk, venue_id, venue_name, venue_type, city, state, state_code,
 # MAGIC   country, country_code, postal_code, address_line1,
 # MAGIC   latitude, longitude, timezone, venue_url,
 # MAGIC   valid_from, valid_to, is_current
 # MAGIC )
 # MAGIC SELECT
+# MAGIC   venue_sk,
 # MAGIC   venue_id,
 # MAGIC   venue_name,
 # MAGIC   venue_type,
@@ -265,9 +268,10 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create dim_attraction with IDENTITY surrogate key
+# MAGIC -- Create dim_attraction with hash surrogate key
+# MAGIC -- attraction_sk: Hash-based surrogate key from Silver (no auto-increment)
 # MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_attraction (
-# MAGIC   attraction_sk BIGINT GENERATED ALWAYS AS IDENTITY,
+# MAGIC   attraction_sk STRING NOT NULL,
 # MAGIC   attraction_id STRING NOT NULL,
 # MAGIC   attraction_name STRING,
 # MAGIC   attraction_type STRING,
@@ -286,14 +290,15 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_attraction
+# MAGIC -- Populate dim_attraction (using hash surrogate key)
 # MAGIC INSERT INTO ticket_master.gold.dim_attraction (
-# MAGIC   attraction_id, attraction_name, attraction_type,
+# MAGIC   attraction_sk, attraction_id, attraction_name, attraction_type,
 # MAGIC   segment_id, segment_name, genre_id, genre_name,
 # MAGIC   attraction_url, is_test,
 # MAGIC   valid_from, valid_to, is_current
 # MAGIC )
 # MAGIC SELECT
+# MAGIC   attraction_sk,
 # MAGIC   attraction_id,
 # MAGIC   attraction_name,
 # MAGIC   attraction_type,
@@ -398,14 +403,16 @@ create_dim_date()
 # MAGIC %sql
 # MAGIC -- Create fact_events with foreign keys to dimensions and liquid clustering
 # MAGIC -- Using liquid clustering (DBR 15.2+) instead of partitioning for better performance
+# MAGIC -- silver_event_sk: Hash from Silver for deduplication
+# MAGIC -- event_sk: Integer surrogate for performance
 # MAGIC CREATE TABLE ticket_master.gold.fact_events (
-# MAGIC   event_sk BIGINT GENERATED ALWAYS AS IDENTITY,
+# MAGIC   event_sk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   event_name STRING,
 # MAGIC   event_type STRING,
 # MAGIC   event_date_key INT,
-# MAGIC   venue_sk BIGINT,
-# MAGIC   attraction_sk BIGINT,
+# MAGIC   venue_sk STRING,
+# MAGIC   attraction_sk STRING,
 # MAGIC   classification_sk BIGINT,
 # MAGIC   event_datetime TIMESTAMP,
 # MAGIC   event_time STRING,
@@ -418,7 +425,7 @@ create_dim_date()
 # MAGIC   sales_end_datetime TIMESTAMP,
 # MAGIC   is_test BOOLEAN,
 # MAGIC   event_url STRING,
-# MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
+# MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk, venue_sk, attraction_sk),
 # MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_key)
 # MAGIC     REFERENCES ticket_master.gold.dim_date(date_key),
 # MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk)
@@ -435,12 +442,13 @@ create_dim_date()
 # MAGIC MERGE INTO ticket_master.gold.fact_events AS t
 # MAGIC USING (
 # MAGIC   SELECT
+# MAGIC     e.event_sk,
+# MAGIC     ev.venue_sk,
+# MAGIC     ea.attraction_sk,
 # MAGIC     e.event_id,
 # MAGIC     e.event_name,
 # MAGIC     e.event_type,
 # MAGIC     CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) AS event_date_key,
-# MAGIC     dv.venue_sk,
-# MAGIC     da.attraction_sk,
 # MAGIC     CAST(NULL AS BIGINT) AS classification_sk, -- placeholder for future join
 # MAGIC     e.event_datetime,
 # MAGIC     e.event_time,
@@ -455,25 +463,19 @@ create_dim_date()
 # MAGIC     e.event_url
 # MAGIC   FROM ticket_master.silver.events e
 # MAGIC   LEFT JOIN ticket_master.silver.event_venues ev
-# MAGIC     ON e.event_id = ev.event_id
-# MAGIC   LEFT JOIN ticket_master.gold.dim_venue dv
-# MAGIC     ON ev.venue_id = dv.venue_id AND dv.is_current = TRUE
+# MAGIC     ON e.event_sk = ev.event_sk  -- Join on hash surrogate key
 # MAGIC   LEFT JOIN ticket_master.silver.event_attractions ea
-# MAGIC     ON e.event_id = ea.event_id
-# MAGIC   LEFT JOIN ticket_master.gold.dim_attraction da
-# MAGIC     ON ea.attraction_id = da.attraction_id AND da.is_current = TRUE
+# MAGIC     ON e.event_sk = ea.event_sk  -- Join on hash surrogate key
 # MAGIC ) AS s
-# MAGIC -- Match on event_id, venue_sk, and attraction_sk (preserves grain)
-# MAGIC ON  t.event_id       = s.event_id
-# MAGIC AND t.venue_sk      <=> s.venue_sk       -- null-safe equality
+# MAGIC -- Match on hash surrogate keys for deduplication
+# MAGIC ON  t.event_sk      = s.event_sk
+# MAGIC AND t.venue_sk     <=> s.venue_sk       -- null-safe equality
 # MAGIC AND t.attraction_sk <=> s.attraction_sk  -- null-safe equality
 # MAGIC 
 # MAGIC WHEN MATCHED THEN UPDATE SET
 # MAGIC   t.event_name            = s.event_name,
 # MAGIC   t.event_type            = s.event_type,
 # MAGIC   t.event_date_key        = s.event_date_key,
-# MAGIC   t.venue_sk              = s.venue_sk,
-# MAGIC   t.attraction_sk         = s.attraction_sk,
 # MAGIC   t.classification_sk     = s.classification_sk,
 # MAGIC   t.event_datetime        = s.event_datetime,
 # MAGIC   t.event_time            = s.event_time,
@@ -486,14 +488,15 @@ create_dim_date()
 # MAGIC   t.sales_end_datetime    = s.sales_end_datetime,
 # MAGIC   t.is_test               = s.is_test,
 # MAGIC   t.event_url             = s.event_url
-# MAGIC 
+# MAGIC
 # MAGIC WHEN NOT MATCHED THEN INSERT (
+# MAGIC   event_sk,
+# MAGIC   venue_sk,
+# MAGIC   attraction_sk,
 # MAGIC   event_id,
 # MAGIC   event_name,
 # MAGIC   event_type,
 # MAGIC   event_date_key,
-# MAGIC   venue_sk,
-# MAGIC   attraction_sk,
 # MAGIC   classification_sk,
 # MAGIC   event_datetime,
 # MAGIC   event_time,
@@ -507,12 +510,13 @@ create_dim_date()
 # MAGIC   is_test,
 # MAGIC   event_url
 # MAGIC ) VALUES (
+# MAGIC   s.event_sk,
+# MAGIC   s.venue_sk,
+# MAGIC   s.attraction_sk,
 # MAGIC   s.event_id,
 # MAGIC   s.event_name,
 # MAGIC   s.event_type,
 # MAGIC   s.event_date_key,
-# MAGIC   s.venue_sk,
-# MAGIC   s.attraction_sk,
 # MAGIC   s.classification_sk,
 # MAGIC   s.event_datetime,
 # MAGIC   s.event_time,

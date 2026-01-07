@@ -16,9 +16,15 @@ It reads raw JSON files and writes them to structured Delta tables with minimal 
 # MAGIC
 # MAGIC **Features:**
 # MAGIC - Auto schema inference and evolution
+# MAGIC - Rescued data column for malformed/unexpected data
 # MAGIC - Incremental processing with checkpointing
 # MAGIC - Ingestion metadata (timestamp, source file)
 # MAGIC - Partitioning by ingestion date
+# MAGIC
+# MAGIC **Schema Evolution + Rescued Data:**
+# MAGIC - `addNewColumns`: When new fields appear in JSON, they're automatically added to schema
+# MAGIC - `_rescued_data`: Malformed data or data that doesn't match schema is captured here
+# MAGIC - This prevents data loss when API changes unexpectedly
 
 # COMMAND ----------
 
@@ -131,15 +137,16 @@ def create_bronze_stream(entity_config):
 
     # Read JSON files using Auto Loader (reads recursively from subdirectories)
     # Ticketmaster API returns events with varying fields (e.g., sales.presales may or may not exist)
-    # Using addNewColumns mode: fails on new fields, then auto-adds them on retry
+    # Using addNewColumns + rescuedDataColumn: auto-adds expected new fields, rescues unexpected data
     df = (
         spark.readStream
         .format("cloudFiles")
         .option("cloudFiles.format", "json")
         .option("cloudFiles.schemaLocation", f"{checkpoint_path}/schema")
         .option("cloudFiles.inferColumnTypes", "true")
-        .option("cloudFiles.schemaEvolutionMode", "addNewColumns")  # Auto-evolve schema
-        .option("cloudFiles.useIncrementalListing", "auto")  # Optimized for directory listing
+        .option("cloudFiles.schemaEvolutionMode", "addNewColumns")  # Auto-evolve schema for new fields
+        .option("cloudFiles.rescuedDataColumn", "_rescued_data")  # Capture malformed/unexpected data
+        .option("cloudFiles.maxFileAge", "30 days")  # Expire file states after 30 days (prevents unbounded growth)
         .option("recursiveFileLookup", "true")  # Scan subdirectories (YYYY/MM/DD structure)
         .option("multiLine", "true")  # Handle multi-line JSON
         .load(source_path)

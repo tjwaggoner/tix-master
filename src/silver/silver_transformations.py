@@ -267,17 +267,25 @@ def create_silver_venues_stream():
             col("_ingestion_timestamp")
         )
         .filter(col("venue_id").isNotNull())
+        # Add surrogate key based on business attributes for deduplication
+        .withColumn("venue_sk",
+            md5(concat_ws("||",
+                coalesce(col("venue_name"), lit("")),
+                coalesce(col("latitude").cast("string"), lit("0")),
+                coalesce(col("longitude").cast("string"), lit("0"))
+            ))
+        )
     )
     
-    # Write with MERGE for deduplication
+    # Write with MERGE for deduplication on surrogate key
     query = (
         transformed_stream.writeStream
         .format("delta")
         .outputMode("update")
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["venue_id"]
+            df, batch_id, silver_table,
+            merge_keys=["venue_sk"]  # Deduplicate on surrogate key, not API ID
         ))
         .trigger(availableNow=True)
         .start()
@@ -338,17 +346,24 @@ def create_silver_attractions_stream():
             "_ingestion_timestamp"
         )
         .filter(col("attraction_id").isNotNull())
+        # Add surrogate key based on business attributes for deduplication
+        .withColumn("attraction_sk",
+            md5(concat_ws("||",
+                coalesce(col("attraction_name"), lit("")),
+                coalesce(col("segment_name"), lit("NONE"))
+            ))
+        )
     )
     
-    # Write with MERGE for deduplication
+    # Write with MERGE for deduplication on surrogate key
     query = (
         transformed_stream.writeStream
         .format("delta")
         .outputMode("update")
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["attraction_id"]
+            df, batch_id, silver_table,
+            merge_keys=["attraction_sk"]  # Deduplicate on surrogate key, not API ID
         ))
         .trigger(availableNow=True)
         .start()
@@ -612,17 +627,24 @@ def create_silver_events_stream():
             col("_ingestion_timestamp")
         )
         .filter(col("event_id").isNotNull())
+        # Add surrogate key based on business attributes for deduplication
+        .withColumn("event_sk",
+            md5(concat_ws("||",
+                coalesce(col("event_name"), lit("")),
+                coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
+            ))
+        )
     )
     
-    # Write with MERGE for deduplication
+    # Write with MERGE for deduplication on surrogate key
     query = (
         transformed_stream.writeStream
         .format("delta")
         .outputMode("update")
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["event_id"]
+            df, batch_id, silver_table,
+            merge_keys=["event_sk"]  # Deduplicate on surrogate key, not API ID
         ))
         .trigger(availableNow=True)
         .start()
@@ -645,48 +667,73 @@ def create_silver_event_venues_stream():
     """
     Stream event-venue relationships from Bronze to Silver
     """
-    
+
     silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_venues"
     checkpoint_path = f"{CHECKPOINT_BASE}/event_venues"
-    
+
     # Stream from Bronze
     bronze_stream = (
         spark.readStream
         .format("delta")
         .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
     )
-    
+
     # Transform
     transformed_stream = (
         bronze_stream
         .select(
+            # Event fields for surrogate key
             col("id").alias("event_id"),
+            col("name").alias("event_name"),
+            col("dates.start.dateTime").cast("timestamp").alias("event_datetime"),
+            # Venue fields
             explode_outer(col("_embedded.venues")).alias("venue"),
             col("_ingestion_timestamp")
         )
         .select(
             "event_id",
+            "event_name",
+            "event_datetime",
             col("venue.id").alias("venue_id"),
-            col("venue.name").alias("venue_name_snapshot"),
+            col("venue.name").alias("venue_name"),
+            col("venue.location.latitude").cast("double").alias("latitude"),
+            col("venue.location.longitude").cast("double").alias("longitude"),
             col("_ingestion_timestamp")
         )
         .filter(col("event_id").isNotNull() & col("venue_id").isNotNull())
+        # Add event surrogate key
+        .withColumn("event_sk",
+            md5(concat_ws("||",
+                coalesce(col("event_name"), lit("")),
+                coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
+            ))
+        )
+        # Add venue surrogate key
+        .withColumn("venue_sk",
+            md5(concat_ws("||",
+                coalesce(col("venue_name"), lit("")),
+                coalesce(col("latitude").cast("string"), lit("0")),
+                coalesce(col("longitude").cast("string"), lit("0"))
+            ))
+        )
+        # Keep only the keys we need in the bridge table
+        .select("event_id", "venue_id", "event_sk", "venue_sk", "_ingestion_timestamp")
     )
-    
-    # Write with MERGE for deduplication
+
+    # Write with MERGE for deduplication on surrogate keys
     query = (
         transformed_stream.writeStream
         .format("delta")
         .outputMode("update")
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["event_id", "venue_id"]
+            df, batch_id, silver_table,
+            merge_keys=["event_sk", "venue_sk"]  # Deduplicate on surrogate keys
         ))
         .trigger(availableNow=True)
         .start()
     )
-    
+
     return query
 
 # Start the stream
@@ -704,48 +751,73 @@ def create_silver_event_attractions_stream():
     """
     Stream event-attraction relationships from Bronze to Silver
     """
-    
+
     silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_attractions"
     checkpoint_path = f"{CHECKPOINT_BASE}/event_attractions"
-    
+
     # Stream from Bronze
     bronze_stream = (
         spark.readStream
         .format("delta")
         .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
     )
-    
+
     # Transform
     transformed_stream = (
         bronze_stream
         .select(
+            # Event fields for surrogate key
             col("id").alias("event_id"),
+            col("name").alias("event_name"),
+            col("dates.start.dateTime").cast("timestamp").alias("event_datetime"),
+            # Classification for attraction surrogate key
+            col("classifications")[0]["segment"]["name"].alias("segment_name"),
+            # Attraction fields
             explode_outer(col("_embedded.attractions")).alias("attraction"),
             col("_ingestion_timestamp")
         )
         .select(
             "event_id",
+            "event_name",
+            "event_datetime",
             col("attraction.id").alias("attraction_id"),
-            col("attraction.name").alias("attraction_name_snapshot"),
+            col("attraction.name").alias("attraction_name"),
+            "segment_name",
             col("_ingestion_timestamp")
         )
         .filter(col("event_id").isNotNull() & col("attraction_id").isNotNull())
+        # Add event surrogate key
+        .withColumn("event_sk",
+            md5(concat_ws("||",
+                coalesce(col("event_name"), lit("")),
+                coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
+            ))
+        )
+        # Add attraction surrogate key
+        .withColumn("attraction_sk",
+            md5(concat_ws("||",
+                coalesce(col("attraction_name"), lit("")),
+                coalesce(col("segment_name"), lit("NONE"))
+            ))
+        )
+        # Keep only the keys we need in the bridge table
+        .select("event_id", "attraction_id", "event_sk", "attraction_sk", "_ingestion_timestamp")
     )
-    
-    # Write with MERGE for deduplication
+
+    # Write with MERGE for deduplication on surrogate keys
     query = (
         transformed_stream.writeStream
         .format("delta")
         .outputMode("update")
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["event_id", "attraction_id"]
+            df, batch_id, silver_table,
+            merge_keys=["event_sk", "attraction_sk"]  # Deduplicate on surrogate keys
         ))
         .trigger(availableNow=True)
         .start()
     )
-    
+
     return query
 
 # Start the stream
