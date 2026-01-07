@@ -413,12 +413,13 @@ create_dim_date()
 # MAGIC -- venue_sk_fk: Nullable foreign key to dim_venue (hash surrogate)
 # MAGIC -- attraction_sk_fk: Nullable foreign key to dim_attraction (hash surrogate)
 # MAGIC -- classification_sk_fk: Nullable foreign key to dim_classification (hash surrogate)
+# MAGIC -- event_date_fk: Nullable foreign key to dim_date (natural key)
 # MAGIC CREATE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   event_name STRING,
 # MAGIC   event_type STRING,
-# MAGIC   event_date_key INT,
+# MAGIC   event_date_fk INT,
 # MAGIC   venue_sk_fk STRING,
 # MAGIC   attraction_sk_fk STRING,
 # MAGIC   classification_sk_fk STRING,
@@ -434,7 +435,7 @@ create_dim_date()
 # MAGIC   is_test BOOLEAN,
 # MAGIC   event_url STRING,
 # MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
-# MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_key)
+# MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_date(date_key),
 # MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_venue(venue_sk),
@@ -443,7 +444,7 @@ create_dim_date()
 # MAGIC   CONSTRAINT fact_events_classification_fk FOREIGN KEY (classification_sk_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_classification(classification_sk)
 # MAGIC )
-# MAGIC CLUSTER BY (event_date_key, venue_sk_fk);
+# MAGIC CLUSTER BY (event_date_fk, venue_sk_fk);
 
 # COMMAND ----------
 
@@ -458,7 +459,7 @@ create_dim_date()
 # MAGIC     e.event_id,
 # MAGIC     e.event_name,
 # MAGIC     e.event_type,
-# MAGIC     CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) AS event_date_key,
+# MAGIC     CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) AS event_date_fk,
 # MAGIC     CAST(NULL AS STRING) AS classification_sk_fk, -- placeholder for future join
 # MAGIC     e.event_datetime,
 # MAGIC     e.event_time,
@@ -485,7 +486,7 @@ create_dim_date()
 # MAGIC WHEN MATCHED THEN UPDATE SET
 # MAGIC   t.event_name            = s.event_name,
 # MAGIC   t.event_type            = s.event_type,
-# MAGIC   t.event_date_key        = s.event_date_key,
+# MAGIC   t.event_date_fk         = s.event_date_fk,
 # MAGIC   t.classification_sk_fk  = s.classification_sk_fk,
 # MAGIC   t.event_datetime        = s.event_datetime,
 # MAGIC   t.event_time            = s.event_time,
@@ -506,7 +507,7 @@ create_dim_date()
 # MAGIC   event_id,
 # MAGIC   event_name,
 # MAGIC   event_type,
-# MAGIC   event_date_key,
+# MAGIC   event_date_fk,
 # MAGIC   classification_sk_fk,
 # MAGIC   event_datetime,
 # MAGIC   event_time,
@@ -526,7 +527,7 @@ create_dim_date()
 # MAGIC   s.event_id,
 # MAGIC   s.event_name,
 # MAGIC   s.event_type,
-# MAGIC   s.event_date_key,
+# MAGIC   s.event_date_fk,
 # MAGIC   s.classification_sk_fk,
 # MAGIC   s.event_datetime,
 # MAGIC   s.event_time,
@@ -566,7 +567,7 @@ create_dim_date()
 # MAGIC   AVG(f.price_max) as avg_price_max,
 # MAGIC   MIN(f.sales_start_datetime) as earliest_sale_start
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_fk = d.date_key
 # MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk
 # MAGIC GROUP BY
 # MAGIC   d.date_value, d.year, d.month, d.month_name, d.day_name,
@@ -591,7 +592,7 @@ create_dim_date()
 # MAGIC FROM ticket_master.gold.fact_events f
 # MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk_fk = a.attraction_sk
 # MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_fk = d.date_key
 # MAGIC GROUP BY
 # MAGIC   a.attraction_name, a.attraction_type, a.segment_name, a.genre_name;
 
@@ -613,7 +614,7 @@ create_dim_date()
 # MAGIC   COUNT(DISTINCT CASE WHEN d.is_weekend THEN f.event_id END) as weekend_events,
 # MAGIC   COUNT(DISTINCT CASE WHEN NOT d.is_weekend THEN f.event_id END) as weekday_events
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_fk = d.date_key
 # MAGIC GROUP BY
 # MAGIC   d.year, d.month, d.month_name, d.quarter;
 
