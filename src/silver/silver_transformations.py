@@ -701,15 +701,15 @@ def create_silver_event_venues_stream():
             col("_ingestion_timestamp")
         )
         .filter(col("event_id").isNotNull() & col("venue_id").isNotNull())
-        # Add event surrogate key
-        .withColumn("event_sk",
+        # Add event surrogate key (foreign key reference)
+        .withColumn("event_sk_fk",
             md5(concat_ws("||",
                 coalesce(col("event_name"), lit("")),
                 coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
             ))
         )
-        # Add venue surrogate key
-        .withColumn("venue_sk",
+        # Add venue surrogate key (foreign key reference)
+        .withColumn("venue_sk_fk",
             md5(concat_ws("||",
                 coalesce(col("venue_name"), lit("")),
                 coalesce(col("latitude").cast("string"), lit("0")),
@@ -717,7 +717,7 @@ def create_silver_event_venues_stream():
             ))
         )
         # Keep only the keys we need in the bridge table
-        .select("event_id", "venue_id", "event_sk", "venue_sk", "_ingestion_timestamp")
+        .select("event_id", "venue_id", "event_sk_fk", "venue_sk_fk", "_ingestion_timestamp")
     )
 
     # Write with MERGE for deduplication on surrogate keys
@@ -728,7 +728,7 @@ def create_silver_event_venues_stream():
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
             df, batch_id, silver_table,
-            merge_keys=["event_sk", "venue_sk"]  # Deduplicate on surrogate keys
+            merge_keys=["event_sk_fk", "venue_sk_fk"]  # Deduplicate on surrogate keys
         ))
         .trigger(availableNow=True)
         .start()
@@ -786,22 +786,22 @@ def create_silver_event_attractions_stream():
             col("_ingestion_timestamp")
         )
         .filter(col("event_id").isNotNull() & col("attraction_id").isNotNull())
-        # Add event surrogate key
-        .withColumn("event_sk",
+        # Add event surrogate key (foreign key reference)
+        .withColumn("event_sk_fk",
             md5(concat_ws("||",
                 coalesce(col("event_name"), lit("")),
                 coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
             ))
         )
-        # Add attraction surrogate key
-        .withColumn("attraction_sk",
+        # Add attraction surrogate key (foreign key reference)
+        .withColumn("attraction_sk_fk",
             md5(concat_ws("||",
                 coalesce(col("attraction_name"), lit("")),
                 coalesce(col("segment_name"), lit("NONE"))
             ))
         )
         # Keep only the keys we need in the bridge table
-        .select("event_id", "attraction_id", "event_sk", "attraction_sk", "_ingestion_timestamp")
+        .select("event_id", "attraction_id", "event_sk_fk", "attraction_sk_fk", "_ingestion_timestamp")
     )
 
     # Write with MERGE for deduplication on surrogate keys
@@ -812,7 +812,7 @@ def create_silver_event_attractions_stream():
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
             df, batch_id, silver_table,
-            merge_keys=["event_sk", "attraction_sk"]  # Deduplicate on surrogate keys
+            merge_keys=["event_sk_fk", "attraction_sk_fk"]  # Deduplicate on surrogate keys
         ))
         .trigger(availableNow=True)
         .start()

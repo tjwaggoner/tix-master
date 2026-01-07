@@ -403,16 +403,17 @@ create_dim_date()
 # MAGIC %sql
 # MAGIC -- Create fact_events with foreign keys to dimensions and liquid clustering
 # MAGIC -- Using liquid clustering (DBR 15.2+) instead of partitioning for better performance
-# MAGIC -- silver_event_sk: Hash from Silver for deduplication
-# MAGIC -- event_sk: Integer surrogate for performance
+# MAGIC -- event_sk: Hash-based surrogate key (primary key)
+# MAGIC -- venue_sk_fk: Foreign key to dim_venue (hash surrogate)
+# MAGIC -- attraction_sk_fk: Foreign key to dim_attraction (hash surrogate)
 # MAGIC CREATE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   event_name STRING,
 # MAGIC   event_type STRING,
 # MAGIC   event_date_key INT,
-# MAGIC   venue_sk STRING,
-# MAGIC   attraction_sk STRING,
+# MAGIC   venue_sk_fk STRING,
+# MAGIC   attraction_sk_fk STRING,
 # MAGIC   classification_sk BIGINT,
 # MAGIC   event_datetime TIMESTAMP,
 # MAGIC   event_time STRING,
@@ -425,15 +426,15 @@ create_dim_date()
 # MAGIC   sales_end_datetime TIMESTAMP,
 # MAGIC   is_test BOOLEAN,
 # MAGIC   event_url STRING,
-# MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk, venue_sk, attraction_sk),
+# MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk, venue_sk_fk, attraction_sk_fk),
 # MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_key)
 # MAGIC     REFERENCES ticket_master.gold.dim_date(date_key),
-# MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk)
+# MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_venue(venue_sk),
-# MAGIC   CONSTRAINT fact_events_attraction_fk FOREIGN KEY (attraction_sk)
+# MAGIC   CONSTRAINT fact_events_attraction_fk FOREIGN KEY (attraction_sk_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_attraction(attraction_sk)
 # MAGIC )
-# MAGIC CLUSTER BY (event_date_key, venue_sk);
+# MAGIC CLUSTER BY (event_date_key, venue_sk_fk);
 
 # COMMAND ----------
 
@@ -443,8 +444,8 @@ create_dim_date()
 # MAGIC USING (
 # MAGIC   SELECT
 # MAGIC     e.event_sk,
-# MAGIC     ev.venue_sk,
-# MAGIC     ea.attraction_sk,
+# MAGIC     ev.venue_sk_fk,
+# MAGIC     ea.attraction_sk_fk,
 # MAGIC     e.event_id,
 # MAGIC     e.event_name,
 # MAGIC     e.event_type,
@@ -463,14 +464,14 @@ create_dim_date()
 # MAGIC     e.event_url
 # MAGIC   FROM ticket_master.silver.events e
 # MAGIC   LEFT JOIN ticket_master.silver.event_venues ev
-# MAGIC     ON e.event_sk = ev.event_sk  -- Join on hash surrogate key
+# MAGIC     ON e.event_sk = ev.event_sk_fk  -- Join on hash surrogate key
 # MAGIC   LEFT JOIN ticket_master.silver.event_attractions ea
-# MAGIC     ON e.event_sk = ea.event_sk  -- Join on hash surrogate key
+# MAGIC     ON e.event_sk = ea.event_sk_fk  -- Join on hash surrogate key
 # MAGIC ) AS s
 # MAGIC -- Match on hash surrogate keys for deduplication
-# MAGIC ON  t.event_sk      = s.event_sk
-# MAGIC AND t.venue_sk     <=> s.venue_sk       -- null-safe equality
-# MAGIC AND t.attraction_sk <=> s.attraction_sk  -- null-safe equality
+# MAGIC ON  t.event_sk          = s.event_sk
+# MAGIC AND t.venue_sk_fk      <=> s.venue_sk_fk       -- null-safe equality
+# MAGIC AND t.attraction_sk_fk <=> s.attraction_sk_fk  -- null-safe equality
 # MAGIC 
 # MAGIC WHEN MATCHED THEN UPDATE SET
 # MAGIC   t.event_name            = s.event_name,
@@ -491,8 +492,8 @@ create_dim_date()
 # MAGIC
 # MAGIC WHEN NOT MATCHED THEN INSERT (
 # MAGIC   event_sk,
-# MAGIC   venue_sk,
-# MAGIC   attraction_sk,
+# MAGIC   venue_sk_fk,
+# MAGIC   attraction_sk_fk,
 # MAGIC   event_id,
 # MAGIC   event_name,
 # MAGIC   event_type,
@@ -511,8 +512,8 @@ create_dim_date()
 # MAGIC   event_url
 # MAGIC ) VALUES (
 # MAGIC   s.event_sk,
-# MAGIC   s.venue_sk,
-# MAGIC   s.attraction_sk,
+# MAGIC   s.venue_sk_fk,
+# MAGIC   s.attraction_sk_fk,
 # MAGIC   s.event_id,
 # MAGIC   s.event_name,
 # MAGIC   s.event_type,
@@ -557,7 +558,7 @@ create_dim_date()
 # MAGIC   MIN(f.sales_start_datetime) as earliest_sale_start
 # MAGIC FROM ticket_master.gold.fact_events f
 # MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
-# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk
 # MAGIC GROUP BY
 # MAGIC   d.date_value, d.year, d.month, d.month_name, d.day_name,
 # MAGIC   v.city, v.state, v.country;
@@ -579,8 +580,8 @@ create_dim_date()
 # MAGIC   MAX(d.date_value) as last_event_date,
 # MAGIC   AVG(f.price_max) as avg_max_price
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk = a.attraction_sk
-# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk = v.venue_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk_fk = a.attraction_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk
 # MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_key = d.date_key
 # MAGIC GROUP BY
 # MAGIC   a.attraction_name, a.attraction_type, a.segment_name, a.genre_name;
@@ -596,8 +597,8 @@ create_dim_date()
 # MAGIC   d.month_name,
 # MAGIC   d.quarter,
 # MAGIC   COUNT(DISTINCT f.event_id) as total_events,
-# MAGIC   COUNT(DISTINCT f.venue_sk) as unique_venues,
-# MAGIC   COUNT(DISTINCT f.attraction_sk) as unique_attractions,
+# MAGIC   COUNT(DISTINCT f.venue_sk_fk) as unique_venues,
+# MAGIC   COUNT(DISTINCT f.attraction_sk_fk) as unique_attractions,
 # MAGIC   AVG(f.price_min) as avg_min_price,
 # MAGIC   AVG(f.price_max) as avg_max_price,
 # MAGIC   COUNT(DISTINCT CASE WHEN d.is_weekend THEN f.event_id END) as weekend_events,
