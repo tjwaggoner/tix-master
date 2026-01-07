@@ -404,8 +404,8 @@ create_dim_date()
 # MAGIC -- Create fact_events with foreign keys to dimensions and liquid clustering
 # MAGIC -- Using liquid clustering (DBR 15.2+) instead of partitioning for better performance
 # MAGIC -- event_sk: Hash-based surrogate key (primary key)
-# MAGIC -- venue_sk_fk: Foreign key to dim_venue (hash surrogate)
-# MAGIC -- attraction_sk_fk: Foreign key to dim_attraction (hash surrogate)
+# MAGIC -- venue_sk_fk: Nullable foreign key to dim_venue (hash surrogate)
+# MAGIC -- attraction_sk_fk: Nullable foreign key to dim_attraction (hash surrogate)
 # MAGIC CREATE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
@@ -426,7 +426,7 @@ create_dim_date()
 # MAGIC   sales_end_datetime TIMESTAMP,
 # MAGIC   is_test BOOLEAN,
 # MAGIC   event_url STRING,
-# MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk, venue_sk_fk, attraction_sk_fk),
+# MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
 # MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_key)
 # MAGIC     REFERENCES ticket_master.gold.dim_date(date_key),
 # MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk_fk)
