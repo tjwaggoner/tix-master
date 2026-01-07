@@ -321,9 +321,10 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create dim_classification
+# MAGIC -- Create dim_classification with hash-based surrogate key
+# MAGIC -- classification_sk: Hash-based surrogate key from Silver (no auto-increment)
 # MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_classification (
-# MAGIC   classification_sk BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+# MAGIC   classification_sk STRING NOT NULL,
 # MAGIC   classification_id STRING NOT NULL,
 # MAGIC   segment_id STRING,
 # MAGIC   segment_name STRING,
@@ -341,9 +342,10 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_classification (excluding IDENTITY column)
+# MAGIC -- Populate dim_classification (using classification_id as surrogate key)
 # MAGIC -- Note: Only segment, type, and family fields exist in Ticketmaster API
 # MAGIC INSERT INTO ticket_master.gold.dim_classification (
+# MAGIC   classification_sk,
 # MAGIC   classification_id,
 # MAGIC   segment_id,
 # MAGIC   segment_name,
@@ -351,6 +353,7 @@ create_dim_date()
 # MAGIC   type_name
 # MAGIC )
 # MAGIC SELECT
+# MAGIC   classification_id as classification_sk,
 # MAGIC   classification_id,
 # MAGIC   segment_id,
 # MAGIC   segment_name,
@@ -366,9 +369,10 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create dim_market
+# MAGIC -- Create dim_market with hash-based surrogate key
+# MAGIC -- market_sk: Hash-based surrogate key from Silver (no auto-increment)
 # MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_market (
-# MAGIC   market_sk BIGINT GENERATED ALWAYS AS IDENTITY,
+# MAGIC   market_sk STRING NOT NULL,
 # MAGIC   market_id STRING NOT NULL,
 # MAGIC   market_name STRING,
 # MAGIC   CONSTRAINT dim_market_pk PRIMARY KEY (market_sk)
@@ -377,12 +381,14 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_market (excluding IDENTITY column)
+# MAGIC -- Populate dim_market (using market_id as surrogate key)
 # MAGIC INSERT INTO ticket_master.gold.dim_market (
+# MAGIC   market_sk,
 # MAGIC   market_id,
 # MAGIC   market_name
 # MAGIC )
 # MAGIC SELECT
+# MAGIC   market_id as market_sk,
 # MAGIC   market_id,
 # MAGIC   market_name
 # MAGIC FROM ticket_master.silver.markets;
@@ -406,6 +412,7 @@ create_dim_date()
 # MAGIC -- event_sk: Hash-based surrogate key (primary key)
 # MAGIC -- venue_sk_fk: Nullable foreign key to dim_venue (hash surrogate)
 # MAGIC -- attraction_sk_fk: Nullable foreign key to dim_attraction (hash surrogate)
+# MAGIC -- classification_sk_fk: Nullable foreign key to dim_classification (hash surrogate)
 # MAGIC CREATE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
@@ -414,7 +421,7 @@ create_dim_date()
 # MAGIC   event_date_key INT,
 # MAGIC   venue_sk_fk STRING,
 # MAGIC   attraction_sk_fk STRING,
-# MAGIC   classification_sk BIGINT,
+# MAGIC   classification_sk_fk STRING,
 # MAGIC   event_datetime TIMESTAMP,
 # MAGIC   event_time STRING,
 # MAGIC   event_timezone STRING,
@@ -432,7 +439,9 @@ create_dim_date()
 # MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_venue(venue_sk),
 # MAGIC   CONSTRAINT fact_events_attraction_fk FOREIGN KEY (attraction_sk_fk)
-# MAGIC     REFERENCES ticket_master.gold.dim_attraction(attraction_sk)
+# MAGIC     REFERENCES ticket_master.gold.dim_attraction(attraction_sk),
+# MAGIC   CONSTRAINT fact_events_classification_fk FOREIGN KEY (classification_sk_fk)
+# MAGIC     REFERENCES ticket_master.gold.dim_classification(classification_sk)
 # MAGIC )
 # MAGIC CLUSTER BY (event_date_key, venue_sk_fk);
 
@@ -450,7 +459,7 @@ create_dim_date()
 # MAGIC     e.event_name,
 # MAGIC     e.event_type,
 # MAGIC     CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) AS event_date_key,
-# MAGIC     CAST(NULL AS BIGINT) AS classification_sk, -- placeholder for future join
+# MAGIC     CAST(NULL AS STRING) AS classification_sk_fk, -- placeholder for future join
 # MAGIC     e.event_datetime,
 # MAGIC     e.event_time,
 # MAGIC     e.event_timezone,
@@ -477,7 +486,7 @@ create_dim_date()
 # MAGIC   t.event_name            = s.event_name,
 # MAGIC   t.event_type            = s.event_type,
 # MAGIC   t.event_date_key        = s.event_date_key,
-# MAGIC   t.classification_sk     = s.classification_sk,
+# MAGIC   t.classification_sk_fk  = s.classification_sk_fk,
 # MAGIC   t.event_datetime        = s.event_datetime,
 # MAGIC   t.event_time            = s.event_time,
 # MAGIC   t.event_timezone        = s.event_timezone,
@@ -498,7 +507,7 @@ create_dim_date()
 # MAGIC   event_name,
 # MAGIC   event_type,
 # MAGIC   event_date_key,
-# MAGIC   classification_sk,
+# MAGIC   classification_sk_fk,
 # MAGIC   event_datetime,
 # MAGIC   event_time,
 # MAGIC   event_timezone,
@@ -518,7 +527,7 @@ create_dim_date()
 # MAGIC   s.event_name,
 # MAGIC   s.event_type,
 # MAGIC   s.event_date_key,
-# MAGIC   s.classification_sk,
+# MAGIC   s.classification_sk_fk,
 # MAGIC   s.event_datetime,
 # MAGIC   s.event_time,
 # MAGIC   s.event_timezone,
