@@ -518,7 +518,6 @@ create_dim_date()
 # MAGIC   event_type STRING,
 # MAGIC   date_sk_fk INT,
 # MAGIC   venue_sk_fk STRING,
-# MAGIC   attraction_sk_fk STRING,
 # MAGIC   classification_sk_fk STRING,
 # MAGIC   event_date DATE,
 # MAGIC   event_datetime TIMESTAMP,
@@ -535,10 +534,14 @@ create_dim_date()
 # MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
 # MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (date_sk_fk)
 # MAGIC     REFERENCES ticket_master.gold.dim_date(date_sk)
-# MAGIC   -- Note: No FK constraints to SCD Type 2 dimensions (venue, attraction, classification)
+# MAGIC   -- Note: No FK constraints to SCD Type 2 dimensions (venue, classification)
 # MAGIC   -- because their composite PKs (surrogate_key, valid_from) cannot be referenced
 # MAGIC   -- by fact table which only stores surrogate_key. This is standard for SCD Type 2.
 # MAGIC   -- Joins use: INNER JOIN dim_table d ON fact.dim_sk_fk = d.dim_sk AND d.is_current = TRUE
+# MAGIC   --
+# MAGIC   -- Grain: ONE row per event (event_sk is PK)
+# MAGIC   -- Venue: Latest venue from _embedded.venues[-1] stored in silver.events
+# MAGIC   -- Attractions: Use silver.event_attractions bridge table for many-to-many queries
 # MAGIC   --
 # MAGIC   -- Date fields strategy:
 # MAGIC   -- - date_sk_fk: FK to dim_date for joins and relationships
@@ -551,12 +554,12 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC -- MERGE fact_events for upsert capability (insert new, update existing)
+# MAGIC -- Grain: ONE row per event (matches on event_sk only)
 # MAGIC MERGE INTO ticket_master.gold.fact_events AS t
 # MAGIC USING (
 # MAGIC   SELECT
 # MAGIC     e.event_sk,
-# MAGIC     ev.venue_sk_fk,
-# MAGIC     ea.attraction_sk_fk,
+# MAGIC     e.venue_sk AS venue_sk_fk,  -- Venue from latest in _embedded.venues array
 # MAGIC     e.event_id,
 # MAGIC     e.event_name,
 # MAGIC     e.event_type,
@@ -575,19 +578,14 @@ create_dim_date()
 # MAGIC     e.is_test,
 # MAGIC     e.event_url
 # MAGIC   FROM ticket_master.silver.events e
-# MAGIC   LEFT JOIN ticket_master.silver.event_venues ev
-# MAGIC     ON e.event_sk = ev.event_sk_fk  -- Join on hash surrogate key
-# MAGIC   LEFT JOIN ticket_master.silver.event_attractions ea
-# MAGIC     ON e.event_sk = ea.event_sk_fk  -- Join on hash surrogate key
 # MAGIC   LEFT JOIN ticket_master.gold.dim_date d
 # MAGIC     ON e.event_date = d.date_value  -- Join on natural date to get surrogate key
 # MAGIC ) AS s
-# MAGIC -- Match on hash surrogate keys for deduplication
-# MAGIC ON  t.event_sk          = s.event_sk
-# MAGIC AND t.venue_sk_fk      <=> s.venue_sk_fk       -- null-safe equality
-# MAGIC AND t.attraction_sk_fk <=> s.attraction_sk_fk  -- null-safe equality
-# MAGIC 
+# MAGIC -- Match on event_sk only (proper grain: one row per event)
+# MAGIC ON t.event_sk = s.event_sk
+# MAGIC
 # MAGIC WHEN MATCHED THEN UPDATE SET
+# MAGIC   t.venue_sk_fk           = s.venue_sk_fk,
 # MAGIC   t.event_name            = s.event_name,
 # MAGIC   t.event_type            = s.event_type,
 # MAGIC   t.date_sk_fk            = s.date_sk_fk,
@@ -608,7 +606,6 @@ create_dim_date()
 # MAGIC WHEN NOT MATCHED THEN INSERT (
 # MAGIC   event_sk,
 # MAGIC   venue_sk_fk,
-# MAGIC   attraction_sk_fk,
 # MAGIC   event_id,
 # MAGIC   event_name,
 # MAGIC   event_type,
@@ -629,7 +626,6 @@ create_dim_date()
 # MAGIC ) VALUES (
 # MAGIC   s.event_sk,
 # MAGIC   s.venue_sk_fk,
-# MAGIC   s.attraction_sk_fk,
 # MAGIC   s.event_id,
 # MAGIC   s.event_name,
 # MAGIC   s.event_type,
@@ -647,6 +643,58 @@ create_dim_date()
 # MAGIC   s.sales_end_datetime,
 # MAGIC   s.is_test,
 # MAGIC   s.event_url
+# MAGIC );
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Bridge Table: Event-Attraction Many-to-Many
+# MAGIC
+# MAGIC Bridge table to resolve many-to-many relationships between events and attractions.
+# MAGIC This is a standard Kimball dimensional modeling pattern for multivalued dimensions.
+# MAGIC
+# MAGIC One event can have multiple attractions (headliner + openers).
+# MAGIC One attraction can perform at multiple events.
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC CREATE TABLE IF NOT EXISTS ticket_master.gold.bridge_event_attractions (
+# MAGIC   event_sk STRING NOT NULL,
+# MAGIC   attraction_sk STRING NOT NULL,
+# MAGIC   event_id STRING NOT NULL,
+# MAGIC   attraction_id STRING NOT NULL,
+# MAGIC   CONSTRAINT bridge_event_attractions_pk PRIMARY KEY (event_sk, attraction_sk)
+# MAGIC )
+# MAGIC CLUSTER BY (event_sk);
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -- Populate bridge table from Silver layer
+# MAGIC MERGE INTO ticket_master.gold.bridge_event_attractions AS t
+# MAGIC USING (
+# MAGIC   SELECT
+# MAGIC     ea.event_sk_fk AS event_sk,
+# MAGIC     ea.attraction_sk_fk AS attraction_sk,
+# MAGIC     ea.event_id,
+# MAGIC     ea.attraction_id
+# MAGIC   FROM ticket_master.silver.event_attractions ea
+# MAGIC ) AS s
+# MAGIC ON t.event_sk = s.event_sk AND t.attraction_sk = s.attraction_sk
+# MAGIC WHEN MATCHED THEN UPDATE SET
+# MAGIC   t.event_id = s.event_id,
+# MAGIC   t.attraction_id = s.attraction_id
+# MAGIC WHEN NOT MATCHED THEN INSERT (
+# MAGIC   event_sk,
+# MAGIC   attraction_sk,
+# MAGIC   event_id,
+# MAGIC   attraction_id
+# MAGIC ) VALUES (
+# MAGIC   s.event_sk,
+# MAGIC   s.attraction_sk,
+# MAGIC   s.event_id,
+# MAGIC   s.attraction_id
 # MAGIC );
 
 # COMMAND ----------
@@ -741,7 +789,7 @@ create_dim_date()
 # Display record counts
 gold_tables = [
     "fact_events", "dim_venue", "dim_attraction",
-    "dim_date", "dim_classification"
+    "dim_date", "dim_classification", "bridge_event_attractions"
 ]
 
 for table in gold_tables:

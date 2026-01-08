@@ -32,7 +32,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, explode, explode_outer, when, lit, coalesce,
     struct, array, concat_ws, md5, sha2, monotonically_increasing_id,
-    row_number, max as spark_max, first, current_timestamp
+    row_number, max as spark_max, first, current_timestamp, element_at
 )
 from pyspark.sql.window import Window
 from pyspark.sql.types import *
@@ -570,6 +570,8 @@ def create_silver_events_stream():
             col("test").cast("boolean").alias("is_test"),
             col("classifications")[0]["segment"]["id"].alias("segment_id"),
             col("classifications")[0]["genre"]["id"].alias("genre_id"),
+            # Extract latest venue ID (last element in array)
+            element_at(col("_embedded.venues.id"), -1).alias("venue_id"),
             col("_ingestion_timestamp")
         )
         .filter(col("event_id").isNotNull())
@@ -579,6 +581,12 @@ def create_silver_events_stream():
                 coalesce(col("event_name"), lit("")),
                 coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
             ))
+        )
+        # Add venue surrogate key from venue_id
+        .withColumn("venue_sk",
+            when(col("venue_id").isNotNull(),
+                md5(col("venue_id"))
+            ).otherwise(lit(None))
         )
     )
     
@@ -605,86 +613,12 @@ events_query = create_silver_events_stream()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Streaming Silver Table Creation - Event-Venue Bridge Table
-
-# COMMAND ----------
-
-def create_silver_event_venues_stream():
-    """
-    Stream event-venue relationships from Bronze to Silver
-    """
-
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.event_venues"
-    checkpoint_path = f"{CHECKPOINT_BASE}/event_venues"
-
-    # Stream from Bronze
-    bronze_stream = (
-        spark.readStream
-        .format("delta")
-        .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
-    )
-
-    # Transform
-    transformed_stream = (
-        bronze_stream
-        .select(
-            # Event fields for surrogate key
-            col("id").alias("event_id"),
-            col("name").alias("event_name"),
-            col("dates.start.dateTime").cast("timestamp").alias("event_datetime"),
-            # Venue fields
-            explode_outer(col("_embedded.venues")).alias("venue"),
-            col("_ingestion_timestamp")
-        )
-        .select(
-            "event_id",
-            "event_name",
-            "event_datetime",
-            col("venue.id").alias("venue_id"),
-            col("venue.name").alias("venue_name"),
-            col("venue.location.latitude").cast("double").alias("latitude"),
-            col("venue.location.longitude").cast("double").alias("longitude"),
-            col("_ingestion_timestamp")
-        )
-        .filter(col("event_id").isNotNull() & col("venue_id").isNotNull())
-        # Add event surrogate key (foreign key reference)
-        .withColumn("event_sk_fk",
-            md5(concat_ws("||",
-                coalesce(col("event_name"), lit("")),
-                coalesce(col("event_datetime").cast("string"), lit("1970-01-01"))
-            ))
-        )
-        # Add venue surrogate key (foreign key reference)
-        .withColumn("venue_sk_fk",
-            md5(concat_ws("||",
-                coalesce(col("venue_name"), lit("")),
-                coalesce(col("latitude").cast("string"), lit("0")),
-                coalesce(col("longitude").cast("string"), lit("0"))
-            ))
-        )
-        # Keep only the keys we need in the bridge table
-        .select("event_id", "venue_id", "event_sk_fk", "venue_sk_fk", "_ingestion_timestamp")
-    )
-
-    # Write with MERGE for deduplication on surrogate keys
-    query = (
-        transformed_stream.writeStream
-        .format("delta")
-        .outputMode("update")
-        .option("checkpointLocation", checkpoint_path)
-        .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table,
-            merge_keys=["event_sk_fk", "venue_sk_fk"]  # Deduplicate on surrogate keys
-        ))
-        .trigger(availableNow=True)
-        .start()
-    )
-
-    return query
-
-# Start the stream
-print("Starting event_venues stream...")
-event_venues_query = create_silver_event_venues_stream()
+# MAGIC ## Event-Venue Bridge Table: REMOVED
+# MAGIC
+# MAGIC Bridge table no longer needed. Architecture changed to:
+# MAGIC - silver.events now contains venue_sk column (latest venue from _embedded.venues[-1])
+# MAGIC - fact_events has one row per event with direct venue_sk_fk reference
+# MAGIC - This maintains proper grain: one row per event
 
 # COMMAND ----------
 
@@ -811,24 +745,7 @@ spark.sql(f"""
 """)
 print("  ✓ Enabled liquid clustering on events")
 
-# Event-Venues constraints
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.event_venues", "event_venues_pk", ["event_id", "venue_id"])
-
-add_foreign_key_if_not_exists(
-    table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_venues",
-    constraint_name="event_venues_event_fk",
-    fk_columns=["event_id"],
-    reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
-    reference_columns=["event_id"]
-)
-
-add_foreign_key_if_not_exists(
-    table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_venues",
-    constraint_name="event_venues_venue_fk",
-    fk_columns=["venue_id"],
-    reference_table=f"{CATALOG}.{SILVER_SCHEMA}.venues",
-    reference_columns=["venue_id"]
-)
+# Event-Venues bridge table: REMOVED (venue_sk now stored directly in events table)
 
 # Event-Attractions constraints
 add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.event_attractions", "event_attractions_pk", ["event_id", "attraction_id"])
@@ -867,7 +784,7 @@ print("✓ All constraints added successfully")
 # Display record counts
 silver_tables = [
     "events", "venues", "attractions", "classifications",
-    "event_venues", "event_attractions"
+    "event_attractions"
 ]
 
 print("\n=== Silver Layer Summary ===")
