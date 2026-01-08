@@ -32,9 +32,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, lit, coalesce, when, date_format, year, month, dayofmonth,
     dayofweek, quarter, weekofyear, last_day, concat_ws, count, sum as spark_sum,
-    avg, min as spark_min, max as spark_max, countDistinct
+    avg, min as spark_min, max as spark_max, countDistinct, row_number
 )
 from pyspark.sql.types import *
+from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 from datetime import datetime, timedelta
 
@@ -152,7 +153,7 @@ def add_foreign_key_if_not_exists(table_name: str, constraint_name: str, fk_colu
 def create_dim_date():
     """
     Create a date dimension table with comprehensive date attributes
-    Uses IDENTITY column for surrogate key
+    Uses surrogate key (date_sk) and natural date key (date_value)
     """
 
     # Generate date range (e.g., 2020-2030)
@@ -178,17 +179,28 @@ def create_dim_date():
         .withColumn("month_end_date", last_day(col("date_value")))
     )
 
+    # Add surrogate key using row_number over date_value ordering
+    window_spec = Window.orderBy("date_value")
+    dim_date = dim_date.withColumn("date_sk", row_number().over(window_spec))
+
+    # Reorder columns to put date_sk first, then date_value
+    dim_date = dim_date.select(
+        "date_sk", "date_value", "date_key", "year", "month", "day",
+        "quarter", "week_of_year", "day_of_week", "month_name",
+        "day_name", "is_weekend", "month_end_date"
+    )
+
     table_name = f"{CATALOG}.{GOLD_SCHEMA}.dim_date"
 
-    # Write with identity column
+    # Write with surrogate key
     dim_date.write \
         .format("delta") \
         .mode("overwrite") \
         .saveAsTable(table_name)
 
-    # Add primary key on date_key
+    # Add primary key on date_sk (surrogate key)
     # Add primary key constraint (if not exists)
-    add_primary_key_if_not_exists(table_name, "dim_date_pk", ["date_key"])
+    add_primary_key_if_not_exists(table_name, "dim_date_pk", ["date_sk"])
 
     print(f"✓ Created {table_name} with {dim_date.count():,} records")
 
@@ -204,10 +216,8 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create dim_venue with IDENTITY surrogate key
-# MAGIC -- venue_sk: Integer surrogate for performance
-# MAGIC -- venue_sk: Hash-based surrogate key from Silver (no auto-increment)
-# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_venue (
+# MAGIC -- Create dim_venue with SCD Type 2 for tracking historical changes
+# MAGIC CREATE TABLE IF NOT EXISTS ticket_master.gold.dim_venue (
 # MAGIC   venue_sk STRING NOT NULL,
 # MAGIC   venue_id STRING NOT NULL,
 # MAGIC   venue_name STRING,
@@ -223,42 +233,84 @@ create_dim_date()
 # MAGIC   longitude DOUBLE,
 # MAGIC   timezone STRING,
 # MAGIC   venue_url STRING,
-# MAGIC   valid_from TIMESTAMP,
+# MAGIC   markets VARIANT,
+# MAGIC   valid_from TIMESTAMP NOT NULL,
 # MAGIC   valid_to TIMESTAMP,
-# MAGIC   is_current BOOLEAN,
-# MAGIC   CONSTRAINT dim_venue_pk PRIMARY KEY (venue_sk)
+# MAGIC   is_current BOOLEAN NOT NULL,
+# MAGIC   CONSTRAINT dim_venue_pk PRIMARY KEY (venue_sk, valid_from)
 # MAGIC );
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_venue from Silver (using hash surrogate key)
+# MAGIC -- SCD Type 2: Expire old records where attributes have changed
+# MAGIC MERGE INTO ticket_master.gold.dim_venue AS t
+# MAGIC USING ticket_master.silver.venues AS s
+# MAGIC ON t.venue_id = s.venue_id AND t.is_current = TRUE
+# MAGIC WHEN MATCHED AND (
+# MAGIC   t.venue_name <> s.venue_name OR
+# MAGIC   t.venue_type <> s.venue_type OR
+# MAGIC   t.city <> s.city OR
+# MAGIC   t.state <> s.state OR
+# MAGIC   t.state_code <> s.state_code OR
+# MAGIC   t.country <> s.country OR
+# MAGIC   t.country_code <> s.country_code OR
+# MAGIC   t.postal_code <> s.postal_code OR
+# MAGIC   t.address_line1 <> s.address_line1 OR
+# MAGIC   t.latitude <> s.latitude OR
+# MAGIC   t.longitude <> s.longitude OR
+# MAGIC   t.timezone <> s.timezone OR
+# MAGIC   t.venue_url <> s.venue_url
+# MAGIC ) THEN UPDATE SET
+# MAGIC   t.is_current = FALSE,
+# MAGIC   t.valid_to = current_timestamp();
+# MAGIC
+# MAGIC -- SCD Type 2: Insert new versions for changed records and new records
 # MAGIC INSERT INTO ticket_master.gold.dim_venue (
 # MAGIC   venue_sk, venue_id, venue_name, venue_type, city, state, state_code,
 # MAGIC   country, country_code, postal_code, address_line1,
-# MAGIC   latitude, longitude, timezone, venue_url,
+# MAGIC   latitude, longitude, timezone, venue_url, markets,
 # MAGIC   valid_from, valid_to, is_current
 # MAGIC )
 # MAGIC SELECT
-# MAGIC   venue_sk,
-# MAGIC   venue_id,
-# MAGIC   venue_name,
-# MAGIC   venue_type,
-# MAGIC   city,
-# MAGIC   state,
-# MAGIC   state_code,
-# MAGIC   country,
-# MAGIC   country_code,
-# MAGIC   postal_code,
-# MAGIC   address_line1,
-# MAGIC   latitude,
-# MAGIC   longitude,
-# MAGIC   timezone,
-# MAGIC   venue_url,
-# MAGIC   _ingestion_timestamp as valid_from,
+# MAGIC   s.venue_sk,
+# MAGIC   s.venue_id,
+# MAGIC   s.venue_name,
+# MAGIC   s.venue_type,
+# MAGIC   s.city,
+# MAGIC   s.state,
+# MAGIC   s.state_code,
+# MAGIC   s.country,
+# MAGIC   s.country_code,
+# MAGIC   s.postal_code,
+# MAGIC   s.address_line1,
+# MAGIC   s.latitude,
+# MAGIC   s.longitude,
+# MAGIC   s.timezone,
+# MAGIC   s.venue_url,
+# MAGIC   s.markets,
+# MAGIC   current_timestamp() as valid_from,
 # MAGIC   CAST(NULL AS TIMESTAMP) as valid_to,
 # MAGIC   TRUE as is_current
-# MAGIC FROM ticket_master.silver.venues;
+# MAGIC FROM ticket_master.silver.venues s
+# MAGIC LEFT JOIN ticket_master.gold.dim_venue t
+# MAGIC   ON s.venue_id = t.venue_id AND t.is_current = TRUE
+# MAGIC WHERE t.venue_id IS NULL  -- New records
+# MAGIC    OR (  -- Changed records
+# MAGIC      t.venue_name <> s.venue_name OR
+# MAGIC      t.venue_type <> s.venue_type OR
+# MAGIC      t.city <> s.city OR
+# MAGIC      t.state <> s.state OR
+# MAGIC      t.state_code <> s.state_code OR
+# MAGIC      t.country <> s.country OR
+# MAGIC      t.country_code <> s.country_code OR
+# MAGIC      t.postal_code <> s.postal_code OR
+# MAGIC      t.address_line1 <> s.address_line1 OR
+# MAGIC      t.latitude <> s.latitude OR
+# MAGIC      t.longitude <> s.longitude OR
+# MAGIC      t.timezone <> s.timezone OR
+# MAGIC      t.venue_url <> s.venue_url
+# MAGIC    );
 
 # COMMAND ----------
 
@@ -268,9 +320,8 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create dim_attraction with hash surrogate key
-# MAGIC -- attraction_sk: Hash-based surrogate key from Silver (no auto-increment)
-# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_attraction (
+# MAGIC -- Create dim_attraction with SCD Type 2 for tracking historical changes
+# MAGIC CREATE TABLE IF NOT EXISTS ticket_master.gold.dim_attraction (
 # MAGIC   attraction_sk STRING NOT NULL,
 # MAGIC   attraction_id STRING NOT NULL,
 # MAGIC   attraction_name STRING,
@@ -281,16 +332,33 @@ create_dim_date()
 # MAGIC   genre_name STRING,
 # MAGIC   attraction_url STRING,
 # MAGIC   is_test BOOLEAN,
-# MAGIC   valid_from TIMESTAMP,
+# MAGIC   valid_from TIMESTAMP NOT NULL,
 # MAGIC   valid_to TIMESTAMP,
-# MAGIC   is_current BOOLEAN,
-# MAGIC   CONSTRAINT dim_attraction_pk PRIMARY KEY (attraction_sk)
+# MAGIC   is_current BOOLEAN NOT NULL,
+# MAGIC   CONSTRAINT dim_attraction_pk PRIMARY KEY (attraction_sk, valid_from)
 # MAGIC );
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_attraction (using hash surrogate key)
+# MAGIC -- SCD Type 2: Expire old records where attributes have changed
+# MAGIC MERGE INTO ticket_master.gold.dim_attraction AS t
+# MAGIC USING ticket_master.silver.attractions AS s
+# MAGIC ON t.attraction_id = s.attraction_id AND t.is_current = TRUE
+# MAGIC WHEN MATCHED AND (
+# MAGIC   t.attraction_name <> s.attraction_name OR
+# MAGIC   t.attraction_type <> s.attraction_type OR
+# MAGIC   t.segment_id <> s.segment_id OR
+# MAGIC   t.segment_name <> s.segment_name OR
+# MAGIC   t.genre_id <> s.genre_id OR
+# MAGIC   t.genre_name <> s.genre_name OR
+# MAGIC   t.attraction_url <> s.attraction_url OR
+# MAGIC   t.is_test <> s.is_test
+# MAGIC ) THEN UPDATE SET
+# MAGIC   t.is_current = FALSE,
+# MAGIC   t.valid_to = current_timestamp();
+# MAGIC
+# MAGIC -- SCD Type 2: Insert new versions for changed records and new records
 # MAGIC INSERT INTO ticket_master.gold.dim_attraction (
 # MAGIC   attraction_sk, attraction_id, attraction_name, attraction_type,
 # MAGIC   segment_id, segment_name, genre_id, genre_name,
@@ -298,20 +366,33 @@ create_dim_date()
 # MAGIC   valid_from, valid_to, is_current
 # MAGIC )
 # MAGIC SELECT
-# MAGIC   attraction_sk,
-# MAGIC   attraction_id,
-# MAGIC   attraction_name,
-# MAGIC   attraction_type,
-# MAGIC   segment_id,
-# MAGIC   segment_name,
-# MAGIC   genre_id,
-# MAGIC   genre_name,
-# MAGIC   attraction_url,
-# MAGIC   is_test,
-# MAGIC   _ingestion_timestamp as valid_from,
+# MAGIC   s.attraction_sk,
+# MAGIC   s.attraction_id,
+# MAGIC   s.attraction_name,
+# MAGIC   s.attraction_type,
+# MAGIC   s.segment_id,
+# MAGIC   s.segment_name,
+# MAGIC   s.genre_id,
+# MAGIC   s.genre_name,
+# MAGIC   s.attraction_url,
+# MAGIC   s.is_test,
+# MAGIC   current_timestamp() as valid_from,
 # MAGIC   CAST(NULL AS TIMESTAMP) as valid_to,
 # MAGIC   TRUE as is_current
-# MAGIC FROM ticket_master.silver.attractions;
+# MAGIC FROM ticket_master.silver.attractions s
+# MAGIC LEFT JOIN ticket_master.gold.dim_attraction t
+# MAGIC   ON s.attraction_id = t.attraction_id AND t.is_current = TRUE
+# MAGIC WHERE t.attraction_id IS NULL  -- New records
+# MAGIC    OR (  -- Changed records
+# MAGIC      t.attraction_name <> s.attraction_name OR
+# MAGIC      t.attraction_type <> s.attraction_type OR
+# MAGIC      t.segment_id <> s.segment_id OR
+# MAGIC      t.segment_name <> s.segment_name OR
+# MAGIC      t.genre_id <> s.genre_id OR
+# MAGIC      t.genre_name <> s.genre_name OR
+# MAGIC      t.attraction_url <> s.attraction_url OR
+# MAGIC      t.is_test <> s.is_test
+# MAGIC    );
 
 # COMMAND ----------
 
@@ -321,9 +402,8 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create dim_classification with hash-based surrogate key
-# MAGIC -- classification_sk: Hash-based surrogate key from Silver (no auto-increment)
-# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_classification (
+# MAGIC -- Create dim_classification with SCD Type 2 for tracking historical changes
+# MAGIC CREATE TABLE IF NOT EXISTS ticket_master.gold.dim_classification (
 # MAGIC   classification_sk STRING NOT NULL,
 # MAGIC   classification_id STRING NOT NULL,
 # MAGIC   segment_id STRING,
@@ -336,62 +416,77 @@ create_dim_date()
 # MAGIC   type_name STRING,
 # MAGIC   subtype_id STRING,
 # MAGIC   subtype_name STRING,
-# MAGIC   CONSTRAINT dim_classification_pk PRIMARY KEY (classification_sk)
+# MAGIC   valid_from TIMESTAMP NOT NULL,
+# MAGIC   valid_to TIMESTAMP,
+# MAGIC   is_current BOOLEAN NOT NULL,
+# MAGIC   CONSTRAINT dim_classification_pk PRIMARY KEY (classification_sk, valid_from)
 # MAGIC );
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Populate dim_classification (using classification_id as surrogate key)
-# MAGIC -- Note: Only segment, type, and family fields exist in Ticketmaster API
+# MAGIC -- SCD Type 2: Expire old records where attributes have changed
+# MAGIC -- Note: Only segment and type fields exist in Ticketmaster API
+# MAGIC MERGE INTO ticket_master.gold.dim_classification AS t
+# MAGIC USING (
+# MAGIC   SELECT
+# MAGIC     classification_id as classification_sk,
+# MAGIC     classification_id,
+# MAGIC     segment_id,
+# MAGIC     segment_name,
+# MAGIC     type_id,
+# MAGIC     type_name
+# MAGIC   FROM ticket_master.silver.classifications
+# MAGIC ) AS s
+# MAGIC ON t.classification_id = s.classification_id AND t.is_current = TRUE
+# MAGIC WHEN MATCHED AND (
+# MAGIC   t.segment_id <> s.segment_id OR
+# MAGIC   t.segment_name <> s.segment_name OR
+# MAGIC   t.type_id <> s.type_id OR
+# MAGIC   t.type_name <> s.type_name
+# MAGIC ) THEN UPDATE SET
+# MAGIC   t.is_current = FALSE,
+# MAGIC   t.valid_to = current_timestamp();
+# MAGIC
+# MAGIC -- SCD Type 2: Insert new versions for changed records and new records
 # MAGIC INSERT INTO ticket_master.gold.dim_classification (
 # MAGIC   classification_sk,
 # MAGIC   classification_id,
 # MAGIC   segment_id,
 # MAGIC   segment_name,
 # MAGIC   type_id,
-# MAGIC   type_name
+# MAGIC   type_name,
+# MAGIC   valid_from, valid_to, is_current
 # MAGIC )
 # MAGIC SELECT
-# MAGIC   classification_id as classification_sk,
-# MAGIC   classification_id,
-# MAGIC   segment_id,
-# MAGIC   segment_name,
-# MAGIC   type_id,
-# MAGIC   type_name
-# MAGIC FROM ticket_master.silver.classifications;
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Dimension Table: Market Dimension
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Create dim_market with hash-based surrogate key
-# MAGIC -- market_sk: Hash-based surrogate key from Silver (no auto-increment)
-# MAGIC CREATE OR REPLACE TABLE ticket_master.gold.dim_market (
-# MAGIC   market_sk STRING NOT NULL,
-# MAGIC   market_id STRING NOT NULL,
-# MAGIC   market_name STRING,
-# MAGIC   CONSTRAINT dim_market_pk PRIMARY KEY (market_sk)
-# MAGIC );
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC -- Populate dim_market (using market_id as surrogate key)
-# MAGIC INSERT INTO ticket_master.gold.dim_market (
-# MAGIC   market_sk,
-# MAGIC   market_id,
-# MAGIC   market_name
-# MAGIC )
-# MAGIC SELECT
-# MAGIC   market_id as market_sk,
-# MAGIC   market_id,
-# MAGIC   market_name
-# MAGIC FROM ticket_master.silver.markets;
+# MAGIC   s.classification_sk,
+# MAGIC   s.classification_id,
+# MAGIC   s.segment_id,
+# MAGIC   s.segment_name,
+# MAGIC   s.type_id,
+# MAGIC   s.type_name,
+# MAGIC   current_timestamp() as valid_from,
+# MAGIC   CAST(NULL AS TIMESTAMP) as valid_to,
+# MAGIC   TRUE as is_current
+# MAGIC FROM (
+# MAGIC   SELECT
+# MAGIC     classification_id as classification_sk,
+# MAGIC     classification_id,
+# MAGIC     segment_id,
+# MAGIC     segment_name,
+# MAGIC     type_id,
+# MAGIC     type_name
+# MAGIC   FROM ticket_master.silver.classifications
+# MAGIC ) s
+# MAGIC LEFT JOIN ticket_master.gold.dim_classification t
+# MAGIC   ON s.classification_id = t.classification_id AND t.is_current = TRUE
+# MAGIC WHERE t.classification_id IS NULL  -- New records
+# MAGIC    OR (  -- Changed records
+# MAGIC      t.segment_id <> s.segment_id OR
+# MAGIC      t.segment_name <> s.segment_name OR
+# MAGIC      t.type_id <> s.type_id OR
+# MAGIC      t.type_name <> s.type_name
+# MAGIC    );
 
 # COMMAND ----------
 
@@ -413,16 +508,19 @@ create_dim_date()
 # MAGIC -- venue_sk_fk: Nullable foreign key to dim_venue (hash surrogate)
 # MAGIC -- attraction_sk_fk: Nullable foreign key to dim_attraction (hash surrogate)
 # MAGIC -- classification_sk_fk: Nullable foreign key to dim_classification (hash surrogate)
-# MAGIC -- event_date_fk: Nullable foreign key to dim_date (natural key)
+# MAGIC -- date_sk_fk: Nullable foreign key to dim_date (surrogate key) for joins
+# MAGIC -- event_date: Natural DATE field for readability and simple date filtering
+# MAGIC -- event_datetime: Full TIMESTAMP for precise temporal queries
 # MAGIC CREATE TABLE ticket_master.gold.fact_events (
 # MAGIC   event_sk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   event_name STRING,
 # MAGIC   event_type STRING,
-# MAGIC   event_date_fk INT,
+# MAGIC   date_sk_fk INT,
 # MAGIC   venue_sk_fk STRING,
 # MAGIC   attraction_sk_fk STRING,
 # MAGIC   classification_sk_fk STRING,
+# MAGIC   event_date DATE,
 # MAGIC   event_datetime TIMESTAMP,
 # MAGIC   event_time STRING,
 # MAGIC   event_timezone STRING,
@@ -435,16 +533,19 @@ create_dim_date()
 # MAGIC   is_test BOOLEAN,
 # MAGIC   event_url STRING,
 # MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
-# MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (event_date_fk)
-# MAGIC     REFERENCES ticket_master.gold.dim_date(date_key),
-# MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk_fk)
-# MAGIC     REFERENCES ticket_master.gold.dim_venue(venue_sk),
-# MAGIC   CONSTRAINT fact_events_attraction_fk FOREIGN KEY (attraction_sk_fk)
-# MAGIC     REFERENCES ticket_master.gold.dim_attraction(attraction_sk),
-# MAGIC   CONSTRAINT fact_events_classification_fk FOREIGN KEY (classification_sk_fk)
-# MAGIC     REFERENCES ticket_master.gold.dim_classification(classification_sk)
+# MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (date_sk_fk)
+# MAGIC     REFERENCES ticket_master.gold.dim_date(date_sk)
+# MAGIC   -- Note: No FK constraints to SCD Type 2 dimensions (venue, attraction, classification)
+# MAGIC   -- because their composite PKs (surrogate_key, valid_from) cannot be referenced
+# MAGIC   -- by fact table which only stores surrogate_key. This is standard for SCD Type 2.
+# MAGIC   -- Joins use: INNER JOIN dim_table d ON fact.dim_sk_fk = d.dim_sk AND d.is_current = TRUE
+# MAGIC   --
+# MAGIC   -- Date fields strategy:
+# MAGIC   -- - date_sk_fk: FK to dim_date for joins and relationships
+# MAGIC   -- - event_date: Natural DATE field for readability and simple date filtering
+# MAGIC   -- - event_datetime: Full timestamp for precise temporal queries
 # MAGIC )
-# MAGIC CLUSTER BY (event_date_fk, venue_sk_fk);
+# MAGIC CLUSTER BY (date_sk_fk, venue_sk_fk);
 
 # COMMAND ----------
 
@@ -459,7 +560,8 @@ create_dim_date()
 # MAGIC     e.event_id,
 # MAGIC     e.event_name,
 # MAGIC     e.event_type,
-# MAGIC     CAST(date_format(e.event_date, 'yyyyMMdd') AS INT) AS event_date_fk,
+# MAGIC     d.date_sk AS date_sk_fk,
+# MAGIC     e.event_date,
 # MAGIC     CAST(NULL AS STRING) AS classification_sk_fk, -- placeholder for future join
 # MAGIC     e.event_datetime,
 # MAGIC     e.event_time,
@@ -477,6 +579,8 @@ create_dim_date()
 # MAGIC     ON e.event_sk = ev.event_sk_fk  -- Join on hash surrogate key
 # MAGIC   LEFT JOIN ticket_master.silver.event_attractions ea
 # MAGIC     ON e.event_sk = ea.event_sk_fk  -- Join on hash surrogate key
+# MAGIC   LEFT JOIN ticket_master.gold.dim_date d
+# MAGIC     ON e.event_date = d.date_value  -- Join on natural date to get surrogate key
 # MAGIC ) AS s
 # MAGIC -- Match on hash surrogate keys for deduplication
 # MAGIC ON  t.event_sk          = s.event_sk
@@ -486,7 +590,8 @@ create_dim_date()
 # MAGIC WHEN MATCHED THEN UPDATE SET
 # MAGIC   t.event_name            = s.event_name,
 # MAGIC   t.event_type            = s.event_type,
-# MAGIC   t.event_date_fk         = s.event_date_fk,
+# MAGIC   t.date_sk_fk            = s.date_sk_fk,
+# MAGIC   t.event_date            = s.event_date,
 # MAGIC   t.classification_sk_fk  = s.classification_sk_fk,
 # MAGIC   t.event_datetime        = s.event_datetime,
 # MAGIC   t.event_time            = s.event_time,
@@ -507,7 +612,8 @@ create_dim_date()
 # MAGIC   event_id,
 # MAGIC   event_name,
 # MAGIC   event_type,
-# MAGIC   event_date_fk,
+# MAGIC   date_sk_fk,
+# MAGIC   event_date,
 # MAGIC   classification_sk_fk,
 # MAGIC   event_datetime,
 # MAGIC   event_time,
@@ -527,7 +633,8 @@ create_dim_date()
 # MAGIC   s.event_id,
 # MAGIC   s.event_name,
 # MAGIC   s.event_type,
-# MAGIC   s.event_date_fk,
+# MAGIC   s.date_sk_fk,
+# MAGIC   s.event_date,
 # MAGIC   s.classification_sk_fk,
 # MAGIC   s.event_datetime,
 # MAGIC   s.event_time,
@@ -567,8 +674,8 @@ create_dim_date()
 # MAGIC   AVG(f.price_max) as avg_price_max,
 # MAGIC   MIN(f.sales_start_datetime) as earliest_sale_start
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_fk = d.date_key
-# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.date_sk_fk = d.date_sk
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk AND v.is_current = TRUE
 # MAGIC GROUP BY
 # MAGIC   d.date_value, d.year, d.month, d.month_name, d.day_name,
 # MAGIC   v.city, v.state, v.country;
@@ -590,9 +697,9 @@ create_dim_date()
 # MAGIC   MAX(d.date_value) as last_event_date,
 # MAGIC   AVG(f.price_max) as avg_max_price
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk_fk = a.attraction_sk
-# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_fk = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE
+# MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk AND v.is_current = TRUE
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.date_sk_fk = d.date_sk
 # MAGIC GROUP BY
 # MAGIC   a.attraction_name, a.attraction_type, a.segment_name, a.genre_name;
 
@@ -614,7 +721,7 @@ create_dim_date()
 # MAGIC   COUNT(DISTINCT CASE WHEN d.is_weekend THEN f.event_id END) as weekend_events,
 # MAGIC   COUNT(DISTINCT CASE WHEN NOT d.is_weekend THEN f.event_id END) as weekday_events
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.event_date_fk = d.date_key
+# MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.date_sk_fk = d.date_sk
 # MAGIC GROUP BY
 # MAGIC   d.year, d.month, d.month_name, d.quarter;
 
@@ -634,7 +741,7 @@ create_dim_date()
 # Display record counts
 gold_tables = [
     "fact_events", "dim_venue", "dim_attraction",
-    "dim_date", "dim_classification", "dim_market"
+    "dim_date", "dim_classification"
 ]
 
 for table in gold_tables:

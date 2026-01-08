@@ -264,6 +264,7 @@ def create_silver_venues_stream():
             col("location.longitude").cast("double").alias("longitude"),
             col("location.latitude").cast("double").alias("latitude"),
             col("url").alias("venue_url"),
+            col("markets").alias("markets"),  # Embed markets array as Variant
             col("_ingestion_timestamp")
         )
         .filter(col("venue_id").isNotNull())
@@ -479,63 +480,9 @@ classifications_query = create_silver_classifications_stream()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Streaming Silver Table Creation - Markets Dimension
-
-# COMMAND ----------
-
-def create_silver_markets_stream():
-    """
-    Stream markets from Bronze events to Silver
-    """
-    
-    silver_table = f"{CATALOG}.{SILVER_SCHEMA}.markets"
-    checkpoint_path = f"{CHECKPOINT_BASE}/markets"
-    
-    # Stream from Bronze events
-    bronze_stream = (
-        spark.readStream
-        .format("delta")
-        .table(f"{CATALOG}.{BRONZE_SCHEMA}.events_raw")
-    )
-    
-    # Transform - extract markets from embedded venues
-    transformed_stream = (
-        bronze_stream
-        .select(
-            explode_outer(col("_embedded.venues")).alias("venue"),
-            col("_ingestion_timestamp")
-        )
-        .select(
-            explode_outer(col("venue.markets")).alias("market"),
-            col("_ingestion_timestamp")
-        )
-        .select(
-            col("market.id").alias("market_id"),
-            col("market.name").alias("market_name"),
-            col("_ingestion_timestamp")
-        )
-        .filter(col("market_id").isNotNull())
-    )
-    
-    # Write with MERGE for deduplication
-    query = (
-        transformed_stream.writeStream
-        .format("delta")
-        .outputMode("update")
-        .option("checkpointLocation", checkpoint_path)
-        .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["market_id"]
-        ))
-        .trigger(availableNow=True)
-        .start()
-    )
-    
-    return query
-
-# Start the stream
-print("Starting markets stream...")
-markets_query = create_silver_markets_stream()
+# MAGIC ## Markets are embedded in dim_venue as Variant
+# MAGIC Markets are no longer a separate dimension table.
+# MAGIC They are included as a VARIANT array column in dim_venue.
 
 # COMMAND ----------
 
@@ -574,7 +521,6 @@ print("\nAdding primary key constraints to dimension tables...")
 add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.venues", "venues_pk", ["venue_id"])
 add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.attractions", "attractions_pk", ["attraction_id"])
 add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.classifications", "classifications_pk", ["classification_id"])
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.markets", "markets_pk", ["market_id"])
 
 print("✓ Primary key constraints added")
 
@@ -921,7 +867,7 @@ print("✓ All constraints added successfully")
 # Display record counts
 silver_tables = [
     "events", "venues", "attractions", "classifications",
-    "markets", "event_venues", "event_attractions"
+    "event_venues", "event_attractions"
 ]
 
 print("\n=== Silver Layer Summary ===")

@@ -81,12 +81,132 @@ This project implements a complete data pipeline with three layers:
 
 #### 🥇 Gold Layer (Star Schema Zone)
 - **Purpose**: Consumption-ready dimensional model
-- **Design**: Star schema with identity surrogate keys
+- **Design**: Star schema with surrogate keys
 - **Features**:
   - `fact_events`: Grain = one event occurrence
-  - Dimension tables with SCD Type 2 (venue, attraction)
-  - Auto-incrementing identity columns for performance
+  - Dimension tables with SCD Type 2 (venue, attraction, classification, market)
+  - Surrogate keys for efficient joins
   - Pre-aggregated monthly summaries
+
+### Slowly Changing Dimensions (SCD Type 2)
+
+The Gold layer implements **SCD Type 2** for all dimensions (venue, attraction, classification, market) to track historical changes over time.
+
+#### How SCD Type 2 Works
+
+Each dimension maintains multiple versions of a record when attributes change:
+
+```sql
+-- Example: Venue name changes from "Madison Square Garden" to "MSG Arena"
+
+-- Before change (expired record):
+venue_sk: abc123, venue_id: V123, name: "Madison Square Garden"
+is_current: FALSE, valid_from: 2024-01-01, valid_to: 2024-06-15
+
+-- After change (current record):
+venue_sk: abc123, venue_id: V123, name: "MSG Arena"
+is_current: TRUE, valid_from: 2024-06-15, valid_to: NULL
+```
+
+#### Key Columns
+
+All SCD Type 2 dimensions include:
+- **`valid_from`**: When this version became active (NOT NULL)
+- **`valid_to`**: When this version expired (NULL for current records)
+- **`is_current`**: Boolean flag (TRUE for active version, FALSE for historical)
+
+#### Primary Keys
+
+Composite primary key on `(surrogate_key, valid_from)` allows multiple versions:
+```sql
+PRIMARY KEY (venue_sk, valid_from)
+```
+
+#### Querying SCD Type 2 Dimensions
+
+**Always filter on `is_current = TRUE`** to get the latest dimension values:
+
+```sql
+-- ✅ CORRECT: Filter on is_current
+SELECT e.event_name, v.venue_name, v.city
+FROM fact_events e
+JOIN dim_venue v
+  ON e.venue_sk_fk = v.venue_sk
+  AND v.is_current = TRUE;
+
+-- ❌ INCORRECT: Missing is_current filter returns duplicate rows
+SELECT e.event_name, v.venue_name, v.city
+FROM fact_events e
+JOIN dim_venue v ON e.venue_sk_fk = v.venue_sk;
+```
+
+#### Point-in-Time Queries
+
+To see what the data looked like at a specific date:
+
+```sql
+-- What was the venue name on March 1, 2024?
+SELECT *
+FROM dim_venue
+WHERE venue_id = 'V123'
+  AND '2024-03-01' >= valid_from
+  AND ('2024-03-01' < valid_to OR valid_to IS NULL);
+```
+
+#### MERGE Logic
+
+The pipeline uses a two-step process to implement SCD Type 2:
+
+1. **Step 1: Expire Changed Records**
+```sql
+MERGE INTO dim_venue AS t
+USING silver.venues AS s
+ON t.venue_id = s.venue_id AND t.is_current = TRUE
+WHEN MATCHED AND (attributes_changed) THEN UPDATE SET
+  t.is_current = FALSE,
+  t.valid_to = current_timestamp();
+```
+
+2. **Step 2: Insert New Versions**
+```sql
+INSERT INTO dim_venue (...)
+SELECT ... FROM silver.venues s
+LEFT JOIN dim_venue t ON s.venue_id = t.venue_id AND t.is_current = TRUE
+WHERE t.venue_id IS NULL  -- New records
+   OR (attributes_changed);  -- Changed records
+```
+
+#### Benefits
+- ✅ Track historical changes to venue names, locations, etc.
+- ✅ Audit trail for compliance and debugging
+- ✅ Point-in-time analysis capabilities
+- ✅ Preserve context for historical events
+
+#### Trade-offs
+- ⚠️ More complex queries (must filter on `is_current = TRUE`)
+- ⚠️ Larger dimension tables (multiple versions per entity)
+- ⚠️ More complex ETL logic
+
+#### Foreign Key Constraints with SCD Type 2
+
+**Important:** The fact_events table does **not** have foreign key constraints to SCD Type 2 dimensions.
+
+**Why?**
+- SCD Type 2 dimensions use composite primary keys: `(surrogate_key, valid_from)`
+- Fact table stores only the surrogate key (e.g., `venue_sk_fk`), not the temporal component
+- Foreign key constraints require referencing the **exact** primary key columns
+- This is standard practice for SCD Type 2 implementations
+
+**What about referential integrity?**
+- Databricks query optimizer works well without FK constraints
+- Referential integrity maintained through ETL logic and joins
+- Queries use `is_current = TRUE` filter, not FK relationships
+
+**Foreign keys that exist:**
+- `fact_events.date_sk_fk` → `dim_date(date_sk)` ✓ (dim_date uses single-column PK)
+- `fact_events.event_date_fk` → `dim_date(date_key)` ✓ (alternative natural key)
+
+All materialized views in the Gold layer automatically include the `is_current = TRUE` filter to ensure they show current dimension attributes only.
 
 ## 📊 ETL Pipeline
 
@@ -346,11 +466,11 @@ catalog: ticket_master
 │   ├── event_venues           # Bridge table (M:N)
 │   └── event_attractions      # Bridge table (M:N)
 └── schema: gold               # Star schema for analytics
-    ├── dim_date               # Date dimension (PK: date_key)
-    ├── dim_venue              # Venue dimension (PK: venue_sk) - SCD Type 2
-    ├── dim_attraction         # Attraction dimension (PK: attraction_sk) - SCD Type 2
-    ├── dim_classification     # Classification dimension (PK: classification_sk)
-    ├── dim_market             # Market dimension (PK: market_sk)
+    ├── dim_date               # Date dimension (PK: date_sk)
+    ├── dim_venue              # Venue dimension (PK: venue_sk, valid_from) - SCD Type 2
+    ├── dim_attraction         # Attraction dimension (PK: attraction_sk, valid_from) - SCD Type 2
+    ├── dim_classification     # Classification dimension (PK: classification_sk, valid_from) - SCD Type 2
+    ├── dim_market             # Market dimension (PK: market_sk, valid_from) - SCD Type 2
     ├── fact_events            # Event facts (PK: event_sk)
     ├── monthly_event_summary  # Pre-aggregated monthly KPIs
     └── etl_log                # Execution logs
