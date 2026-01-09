@@ -32,9 +32,9 @@ dim_date (Standard dimension)
 
 dim_venue (SCD Type 2)
 - Location: city, state, country, latitude, longitude
-- Markets: Embedded as VARIANT array (v.markets)
+- Markets: Embedded as ARRAY<STRUCT<id: STRING, name: STRING>> (v.markets)
 - Join: ON f.venue_sk_fk = v.venue_sk AND v.is_current = TRUE
-- Market filtering: WHERE array_contains(v.markets:*.name, 'Market Name')
+- Market filtering: WHERE exists(v.markets, m -> m.name = 'Market Name')
 
 dim_attraction (SCD Type 2)
 - Details: name, type, segment_name, genre_name
@@ -60,7 +60,7 @@ Pre-aggregated Views:
 Query Rules:
 - Always filter: is_test = FALSE
 - SCD Type 2 joins: Always add "AND is_current = TRUE"
-- Market queries: Use array_contains(v.markets:*.name, 'name') or explode(v.markets) for aggregations
+- Market queries: Use exists(v.markets, m -> m.name = 'name') or explode(v.markets) for aggregations
 - Attraction queries: Use bridge_event_attractions bridge table (see dim_attraction pattern above)
 ```
 
@@ -77,7 +77,7 @@ Query Rules:
 - **Fact Grain**: ONE row per event (event_sk is PK) - no duplicates
 - **Star Schema**: 4 dimensions (date, venue, attraction, classification) - no snowflaking
 - **SCD Type 2**: dim_venue, dim_attraction, dim_classification require `is_current = TRUE` filter
-- **Markets**: Embedded as VARIANT array in dim_venue (no separate dim_market table)
+- **Markets**: Embedded as ARRAY<STRUCT> in dim_venue (no separate dim_market table)
 - **Venue**: Latest venue from API stored directly in fact_events (venue_sk_fk)
 - **Attractions**: Many-to-many via gold.bridge_event_attractions (NOT a direct FK in fact_events)
 - **Foreign Keys**: Use `_fk` suffix (date_sk_fk, venue_sk_fk, classification_sk_fk)

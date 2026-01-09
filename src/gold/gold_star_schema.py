@@ -233,7 +233,7 @@ create_dim_date()
 # MAGIC   longitude DOUBLE,
 # MAGIC   timezone STRING,
 # MAGIC   venue_url STRING,
-# MAGIC   markets VARIANT,
+# MAGIC   markets ARRAY<STRUCT<id: STRING, name: STRING>>,
 # MAGIC   valid_from TIMESTAMP NOT NULL,
 # MAGIC   valid_to TIMESTAMP,
 # MAGIC   is_current BOOLEAN NOT NULL,

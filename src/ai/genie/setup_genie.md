@@ -39,7 +39,7 @@ Star Schema:
 
 Key Details:
 - fact_events: Main facts with price_min, price_max, event dates (one row per event)
-- dim_venue: Location (city, state, country) + markets as VARIANT array
+- dim_venue: Location (city, state, country) + markets as ARRAY<STRUCT>
 - dim_attraction: Performer details (name, type, segment, genre)
 - dim_date: Temporal attributes (year, month, quarter, is_weekend)
 - dim_classification: Event types (segment_name, type_name)
@@ -52,7 +52,7 @@ Query Guidelines:
   FROM fact_events f
   JOIN bridge_event_attractions ea ON f.event_sk = ea.event_sk
   JOIN dim_attraction a ON ea.attraction_sk = a.attraction_sk AND a.is_current = TRUE
-- Market queries: Use array_contains(v.markets:*.name, 'name')
+- Market queries: Use exists(v.markets, m -> m.name = 'name') or array_contains(transform(v.markets, m -> m.name), 'name')
 - Use materialized views (mv_*) when available
 ```
 
