@@ -503,9 +503,6 @@ print("  ✓ Attractions completed")
 classifications_query.awaitTermination()
 print("  ✓ Classifications completed")
 
-markets_query.awaitTermination()
-print("  ✓ Markets completed")
-
 print("\n✓ All dimension tables loaded!")
 
 # COMMAND ----------
@@ -716,9 +713,6 @@ print("\nWaiting for fact/bridge table streams to complete...")
 
 events_query.awaitTermination()
 print("  ✓ Events completed")
-
-event_venues_query.awaitTermination()
-print("  ✓ Event-Venues completed")
 
 event_attractions_query.awaitTermination()
 print("  ✓ Event-Attractions completed")
