@@ -41,8 +41,8 @@ dim_attraction (SCD Type 2)
 - NOT directly joined to fact_events (no FK column)
 - Use bridge table pattern:
   FROM fact_events f
-  JOIN ticket_master.gold.bridge_event_attractions ea ON f.event_sk = ea.event_sk
-  JOIN dim_attraction a ON ea.attraction_sk = a.attraction_sk AND a.is_current = TRUE
+  JOIN ticket_master.gold.bridge_event_attractions ea ON f.event_sk = ea.event_sk_fk
+  JOIN dim_attraction a ON ea.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE
 
 dim_classification (SCD Type 2)
 - Details: segment_name, type_name
@@ -53,9 +53,9 @@ Pricing:
 - Prices apply to the entire event (all attractions included in one ticket)
 
 Pre-aggregated Views:
-- mv_events_by_date_venue
-- mv_events_by_attraction
-- mv_monthly_summary
+- v_events_by_date_venue
+- v_events_by_attraction
+- v_monthly_summary
 
 Query Rules:
 - Always filter: is_test = FALSE

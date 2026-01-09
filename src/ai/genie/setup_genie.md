@@ -50,10 +50,10 @@ Query Guidelines:
 - Venue: Direct FK in fact_events (venue_sk_fk)
 - Attractions: Use bridge table pattern:
   FROM fact_events f
-  JOIN bridge_event_attractions ea ON f.event_sk = ea.event_sk
-  JOIN dim_attraction a ON ea.attraction_sk = a.attraction_sk AND a.is_current = TRUE
+  JOIN bridge_event_attractions ea ON f.event_sk = ea.event_sk_fk
+  JOIN dim_attraction a ON ea.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE
 - Market queries: Use exists(v.markets, m -> m.name = 'name') or array_contains(transform(v.markets, m -> m.name), 'name')
-- Use materialized views (mv_*) when available
+- Use pre-aggregated views (v_*) when available
 ```
 
 ## Step 3: Add Sample Questions

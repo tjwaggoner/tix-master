@@ -28,9 +28,9 @@ DROP TABLE IF EXISTS ticket_master.gold.monthly_event_summary;
 DROP TABLE IF EXISTS ticket_master.gold.etl_log;
 
 -- Drop Gold Layer Views
-DROP VIEW IF EXISTS ticket_master.gold.mv_events_by_date_venue;
-DROP VIEW IF EXISTS ticket_master.gold.mv_events_by_attraction;
-DROP VIEW IF EXISTS ticket_master.gold.mv_monthly_summary;
+DROP VIEW IF EXISTS ticket_master.gold.v_events_by_date_venue;
+DROP VIEW IF EXISTS ticket_master.gold.v_events_by_attraction;
+DROP VIEW IF EXISTS ticket_master.gold.v_monthly_summary;
 
 -- ============================================================
 -- Drop Silver Layer Tables (Normalized)

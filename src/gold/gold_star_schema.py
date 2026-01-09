@@ -660,13 +660,13 @@ create_dim_date()
 
 # MAGIC %sql
 # MAGIC CREATE TABLE IF NOT EXISTS ticket_master.gold.bridge_event_attractions (
-# MAGIC   event_sk STRING NOT NULL,
-# MAGIC   attraction_sk STRING NOT NULL,
+# MAGIC   event_sk_fk STRING NOT NULL,
+# MAGIC   attraction_sk_fk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   attraction_id STRING NOT NULL,
-# MAGIC   CONSTRAINT bridge_event_attractions_pk PRIMARY KEY (event_sk, attraction_sk)
+# MAGIC   CONSTRAINT bridge_event_attractions_pk PRIMARY KEY (event_sk_fk, attraction_sk_fk)
 # MAGIC )
-# MAGIC CLUSTER BY (event_sk);
+# MAGIC CLUSTER BY (event_sk_fk);
 
 # COMMAND ----------
 
@@ -675,24 +675,24 @@ create_dim_date()
 # MAGIC MERGE INTO ticket_master.gold.bridge_event_attractions AS t
 # MAGIC USING (
 # MAGIC   SELECT
-# MAGIC     ea.event_sk_fk AS event_sk,
-# MAGIC     ea.attraction_sk_fk AS attraction_sk,
+# MAGIC     ea.event_sk_fk,
+# MAGIC     ea.attraction_sk_fk,
 # MAGIC     ea.event_id,
 # MAGIC     ea.attraction_id
 # MAGIC   FROM ticket_master.silver.event_attractions ea
 # MAGIC ) AS s
-# MAGIC ON t.event_sk = s.event_sk AND t.attraction_sk = s.attraction_sk
+# MAGIC ON t.event_sk_fk = s.event_sk_fk AND t.attraction_sk_fk = s.attraction_sk_fk
 # MAGIC WHEN MATCHED THEN UPDATE SET
 # MAGIC   t.event_id = s.event_id,
 # MAGIC   t.attraction_id = s.attraction_id
 # MAGIC WHEN NOT MATCHED THEN INSERT (
-# MAGIC   event_sk,
-# MAGIC   attraction_sk,
+# MAGIC   event_sk_fk,
+# MAGIC   attraction_sk_fk,
 # MAGIC   event_id,
 # MAGIC   attraction_id
 # MAGIC ) VALUES (
-# MAGIC   s.event_sk,
-# MAGIC   s.attraction_sk,
+# MAGIC   s.event_sk_fk,
+# MAGIC   s.attraction_sk_fk,
 # MAGIC   s.event_id,
 # MAGIC   s.attraction_id
 # MAGIC );
@@ -700,13 +700,13 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Materialized Views for Common Aggregates
+# MAGIC ## Views for Common Aggregates
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create materialized view: Events by Date and Venue
-# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.mv_events_by_date_venue AS
+# MAGIC -- Create view: Events by Date and Venue
+# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.v_events_by_date_venue AS
 # MAGIC SELECT
 # MAGIC   d.date_value,
 # MAGIC   d.year,
@@ -731,8 +731,8 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create materialized view: Events by Attraction Type
-# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.mv_events_by_attraction AS
+# MAGIC -- Create view: Events by Attraction Type
+# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.v_events_by_attraction AS
 # MAGIC SELECT
 # MAGIC   a.attraction_name,
 # MAGIC   a.attraction_type,
@@ -745,7 +745,8 @@ create_dim_date()
 # MAGIC   MAX(d.date_value) as last_event_date,
 # MAGIC   AVG(f.price_max) as avg_max_price
 # MAGIC FROM ticket_master.gold.fact_events f
-# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON f.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE
+# MAGIC INNER JOIN ticket_master.gold.bridge_event_attractions ea ON f.event_sk = ea.event_sk_fk
+# MAGIC INNER JOIN ticket_master.gold.dim_attraction a ON ea.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE
 # MAGIC INNER JOIN ticket_master.gold.dim_venue v ON f.venue_sk_fk = v.venue_sk AND v.is_current = TRUE
 # MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.date_sk_fk = d.date_sk
 # MAGIC GROUP BY
@@ -754,8 +755,8 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create materialized view: Monthly Event Summary
-# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.mv_monthly_summary AS
+# MAGIC -- Create view: Monthly Event Summary
+# MAGIC CREATE OR REPLACE VIEW ticket_master.gold.v_monthly_summary AS
 # MAGIC SELECT
 # MAGIC   d.year,
 # MAGIC   d.month,
@@ -763,13 +764,14 @@ create_dim_date()
 # MAGIC   d.quarter,
 # MAGIC   COUNT(DISTINCT f.event_id) as total_events,
 # MAGIC   COUNT(DISTINCT f.venue_sk_fk) as unique_venues,
-# MAGIC   COUNT(DISTINCT f.attraction_sk_fk) as unique_attractions,
+# MAGIC   COUNT(DISTINCT ea.attraction_sk_fk) as unique_attractions,
 # MAGIC   AVG(f.price_min) as avg_min_price,
 # MAGIC   AVG(f.price_max) as avg_max_price,
 # MAGIC   COUNT(DISTINCT CASE WHEN d.is_weekend THEN f.event_id END) as weekend_events,
 # MAGIC   COUNT(DISTINCT CASE WHEN NOT d.is_weekend THEN f.event_id END) as weekday_events
 # MAGIC FROM ticket_master.gold.fact_events f
 # MAGIC INNER JOIN ticket_master.gold.dim_date d ON f.date_sk_fk = d.date_sk
+# MAGIC LEFT JOIN ticket_master.gold.bridge_event_attractions ea ON f.event_sk = ea.event_sk_fk
 # MAGIC GROUP BY
 # MAGIC   d.year, d.month, d.month_name, d.quarter;
 
