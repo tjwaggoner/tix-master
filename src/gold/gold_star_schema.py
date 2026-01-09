@@ -659,7 +659,13 @@ create_dim_date()
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC CREATE TABLE IF NOT EXISTS ticket_master.gold.bridge_event_attractions (
+# MAGIC -- Drop existing bridge table to recreate with new column names (_fk suffix)
+# MAGIC DROP TABLE IF EXISTS ticket_master.gold.bridge_event_attractions;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC CREATE TABLE ticket_master.gold.bridge_event_attractions (
 # MAGIC   event_sk_fk STRING NOT NULL,
 # MAGIC   attraction_sk_fk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
