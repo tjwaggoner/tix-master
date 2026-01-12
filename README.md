@@ -2,20 +2,20 @@
 
 A data lakehouse implementation for Ticketmaster API data using Databricks Unity Catalog with Bronze/Silver/Gold medallion architecture, deployed via Databricks Asset Bundles (DAB).
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Two-Phase Data Loading Strategy
 
 This pipeline uses a **two-phase approach** for data ingestion:
 
-1. **📥 Historical Ingestion** (One-Time Manual Run)
+1. **Historical Ingestion** (One-Time Manual Run)
    - **When**: Run once before starting the scheduled job
    - **What**: Loads 6 months historical + 1 year future events
    - **Where**: `src/ingestion/ticketmaster_historical_ingestion.py`
    - **How**: Open in Databricks workspace UI and click "Run All"
    - **Note**: Historical lookback limited to 6 months due to Ticketmaster API data retention
-   
-2. **🔄 Incremental Ingestion** (Daily Scheduled Job)
+
+2. **Incremental Ingestion** (Daily Scheduled Job)
    - **When**: Runs automatically daily at 2 AM PST
    - **What**: Fetches only new/updated data since last run
    - **Where**: `src/ingestion/ticketmaster_incremental_ingestion.py`
@@ -23,7 +23,7 @@ This pipeline uses a **two-phase approach** for data ingestion:
 
 > ⚠️ **IMPORTANT**: The historical ingestion is **NOT** part of the scheduled job. Run it manually **ONCE** before starting the daily pipeline.
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 This project implements a complete data pipeline with three layers:
 
@@ -62,7 +62,7 @@ This project implements a complete data pipeline with three layers:
 
 ### Layer Details
 
-#### 🥉 Bronze Layer (Raw Zone)
+#### Bronze Layer (Raw Zone)
 - **Purpose**: Land raw data with minimal transformation
 - **Technology**: Auto Loader (cloudFiles) + Delta Lake
 - **Features**:
@@ -71,7 +71,7 @@ This project implements a complete data pipeline with three layers:
   - Metadata columns (`_ingestion_timestamp`, `_source_file`)
   - Unity Catalog Volume staging
 
-#### 🥈 Silver Layer (Normalized Zone)
+#### Silver Layer (Normalized Zone)
 - **Purpose**: Clean, normalized, and validated data
 - **Design**: Third Normal Form (3NF) with PK/FK constraints
 - **Features**:
@@ -80,7 +80,7 @@ This project implements a complete data pipeline with three layers:
   - Deduplication on natural business keys
   - Data quality validations
 
-#### 🥇 Gold Layer (Star Schema Zone)
+#### Gold Layer (Star Schema Zone)
 - **Purpose**: Consumption-ready dimensional model
 - **Design**: Star schema with surrogate keys
 - **Features**:
@@ -130,23 +130,23 @@ PRIMARY KEY (venue_sk)  -- Single column, not composite
 - Multiple versions per surrogate key are still allowed (SCD Type 2)
 
 **Trade-off**:
-- ✅ Enables FK constraints for query optimization and documentation
-- ⚠️ Doesn't enforce version uniqueness at PK level
-- ⚠️ UNIQUE constraint on `(venue_sk, valid_from)` would be ideal but is disabled in workspace
+- Enables FK constraints for query optimization and documentation
+- Doesn't enforce version uniqueness at PK level
+- UNIQUE constraint on `(venue_sk, valid_from)` would be ideal but is disabled in workspace
 
 #### Querying SCD Type 2 Dimensions
 
 **Always filter on `is_current = TRUE`** to get the latest dimension values:
 
 ```sql
--- ✅ CORRECT: Filter on is_current
+-- CORRECT: Filter on is_current
 SELECT e.event_name, v.venue_name, v.city
 FROM fact_events e
 JOIN dim_venue v
   ON e.venue_sk_fk = v.venue_sk
   AND v.is_current = TRUE;
 
--- ❌ INCORRECT: Missing is_current filter returns duplicate rows
+-- INCORRECT: Missing is_current filter returns duplicate rows
 SELECT e.event_name, v.venue_name, v.city
 FROM fact_events e
 JOIN dim_venue v ON e.venue_sk_fk = v.venue_sk;
@@ -189,15 +189,15 @@ WHERE t.venue_id IS NULL  -- New records
 ```
 
 #### Benefits
-- ✅ Track historical changes to venue names, locations, etc.
-- ✅ Audit trail for compliance and debugging
-- ✅ Point-in-time analysis capabilities
-- ✅ Preserve context for historical events
+- Track historical changes to venue names, locations, etc.
+- Audit trail for compliance and debugging
+- Point-in-time analysis capabilities
+- Preserve context for historical events
 
 #### Trade-offs
-- ⚠️ More complex queries (must filter on `is_current = TRUE`)
-- ⚠️ Larger dimension tables (multiple versions per entity)
-- ⚠️ More complex ETL logic
+- More complex queries (must filter on `is_current = TRUE`)
+- Larger dimension tables (multiple versions per entity)
+- More complex ETL logic
 
 #### Foreign Key Constraints with SCD Type 2
 
@@ -241,7 +241,7 @@ DESCRIBE TABLE ticket_master.gold.fact_events;
 - Referential integrity maintained through ETL logic
 - Queries must still use `is_current = TRUE` filter for SCD Type 2 dimensions
 
-## 📊 ETL Pipeline
+## ETL Pipeline
 
 ### Scheduled Job (Daily Incremental Updates)
 
@@ -272,7 +272,7 @@ Task 6: generate_event_summary
 
 **Schedule**: Daily at 2 AM PST (configurable in `resources/jobs.yml`)
 
-### ⚠️ Historical Ingestion (One-Time Manual Run)
+### Historical Ingestion (One-Time Manual Run)
 
 **Before running the scheduled job for the first time**, you must manually run the historical ingestion notebook to populate the initial dataset:
 
@@ -289,31 +289,31 @@ Task 6: generate_event_summary
 - Writes data to volumes for Bronze layer processing
 
 **Important:**
-- ✅ Run this **ONCE** before starting the scheduled job
-- ⏭️ **DO NOT** add this to the scheduled job (it fetches too much data)
-- 🔄 After this initial load, the scheduled job handles incremental updates
+- Run this **ONCE** before starting the scheduled job
+- **DO NOT** add this to the scheduled job (it fetches too much data)
+- After this initial load, the scheduled job handles incremental updates
 
-## ✨ Features
+## Features
 
-- ✅ **Unity Catalog** - Centralized governance and access control
-- ✅ **Serverless Compute** - Auto-scaling, zero-management infrastructure
-- ✅ **Auto Loader** - Incremental streaming ingestion with schema evolution
-- ✅ **PK/FK Constraints** - Enforce data integrity and enable query optimization
-- ✅ **Identity Columns** - Auto-incrementing surrogate keys for star schema
-- ✅ **Stored Procedures** - Complex SQL logic with control flow (WHILE, IF/ELSE)
-- ✅ **Data Quality Checks** - Automated validation with orphaned record detection
-- ✅ **SCD Type 2** - Track historical changes in dimension tables
-- ✅ **CI/CD** - Databricks Asset Bundles for version-controlled deployments
-- ✅ **AI/BI Ready** - Integration with Databricks Genie for natural language analytics
+- **Unity Catalog** - Centralized governance and access control
+- **Serverless Compute** - Auto-scaling, zero-management infrastructure
+- **Auto Loader** - Incremental streaming ingestion with schema evolution
+- **PK/FK Constraints** - Enforce data integrity and enable query optimization
+- **Identity Columns** - Auto-incrementing surrogate keys for star schema
+- **Stored Procedures** - Complex SQL logic with control flow (WHILE, IF/ELSE)
+- **Data Quality Checks** - Automated validation with orphaned record detection
+- **SCD Type 2** - Track historical changes in dimension tables
+- **CI/CD** - Databricks Asset Bundles for version-controlled deployments
+- **AI/BI Ready** - Integration with Databricks Genie for natural language analytics
 
-## 🚀 Prerequisites
+## Prerequisites
 
 Before deploying, ensure you have:
 
 ### 1. Databricks Workspace Requirements
-- ✅ **Serverless Compute Enabled** - Required for job execution
-- ✅ **Unity Catalog Access** - Permission to create catalogs, schemas, and tables
-- ✅ **SQL Warehouse** - Serverless SQL warehouse for stored procedures
+- **Serverless Compute Enabled** - Required for job execution
+- **Unity Catalog Access** - Permission to create catalogs, schemas, and tables
+- **SQL Warehouse** - Serverless SQL warehouse for stored procedures
 
 ### 2. Manual Setup Steps
 
@@ -347,7 +347,7 @@ Get your Ticketmaster API key from: https://developer.ticketmaster.com/
      warehouse_id: "your_warehouse_id_here"
    ```
 
-## 📦 Getting Started
+## Getting Started
 
 ### 1. Set Up Python Environment
 
@@ -393,10 +393,10 @@ databricks bundle deploy
 4. Click **Run All** to execute the notebook
 
 This will:
-- ✅ Create Unity Catalog resources (catalog, schema, volume)
-- ✅ Fetch 6 months of historical events + 1 year future events
-- ✅ Load all venues, attractions, and classifications
-- ✅ Populate the volumes for Bronze layer processing
+- Create Unity Catalog resources (catalog, schema, volume)
+- Fetch 6 months of historical events + 1 year future events
+- Load all venues, attractions, and classifications
+- Populate the volumes for Bronze layer processing
 
 **Duration**: 20-30 minutes depending on data volume and API response times.
 
@@ -446,7 +446,7 @@ Or watch from the command line:
 databricks bundle run tix_master_etl_pipeline --watch
 ```
 
-## 🗂️ Project Structure
+## Project Structure
 
 ```
 tix-master/
@@ -475,7 +475,7 @@ tix-master/
 └── README.md                   # This file
 ```
 
-## 🗄️ Unity Catalog Structure
+## Unity Catalog Structure
 
 The project automatically creates the following structure:
 
@@ -506,7 +506,7 @@ catalog: ticket_master
     └── etl_log                # Execution logs
 ```
 
-## 🔄 Common Workflows
+## Common Workflows
 
 ### Making Changes and Redeploying
 
@@ -547,7 +547,7 @@ databricks bundle deploy --dry-run
 databricks bundle deploy --dry-run --verbose
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Authentication Issues
 ```bash
@@ -573,7 +573,7 @@ databricks bundle deploy --debug
 3. Check Unity Catalog permissions (USE CATALOG, CREATE SCHEMA)
 4. Ensure SQL Warehouse ID is correct in `databricks.yml`
 
-## 📚 Key Technologies
+## Key Technologies
 
 - **Databricks Runtime**: Serverless compute
 - **Unity Catalog**: Data governance and access control
@@ -583,7 +583,7 @@ databricks bundle deploy --debug
 - **SQL**: Transformations and stored procedures
 - **Databricks Asset Bundles (DAB)**: Infrastructure as code
 
-## 🎯 Data Quality & Monitoring
+## Data Quality & Monitoring
 
 ### Automated Data Quality Checks
 The `sp_data_quality_checks` stored procedure validates:
@@ -606,7 +606,7 @@ All stored procedure executions are logged to `gold.etl_log`:
 - Task-level metrics (duration, data processed)
 - Workflow UI for visual monitoring
 
-## 🔐 Security Best Practices
+## Security Best Practices
 
 1. **Never commit credentials** to git
 2. **Use Databricks Secrets** for API keys
@@ -614,43 +614,35 @@ All stored procedure executions are logged to `gold.etl_log`:
 4. **Use service principals** for staging/prod
 5. **Grant least-privilege** access via Unity Catalog
 
-## 📖 Documentation
+## Documentation
 
 Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
-### 🚀 Getting Started
+### Getting Started
 - **[Setup & Secrets](docs/setup/SECRETS_SETUP.md)** - Configure Databricks secrets and API keys
 - **[Deployment Guide](docs/setup/DEPLOYMENT.md)** - Deploy using Databricks Asset Bundles
 
-### 🏗️ Architecture & Design
+### Architecture & Design
 - **[Surrogate Keys](docs/reference/SURROGATE_KEYS.md)** - Understanding surrogate key design patterns
 - **[Schema Retention](docs/architecture/SCHEMA_RETENTION_ANALYSIS.md)** - Data retention analysis
 - **[Pipeline Architecture](docs/architecture/PIPELINE_INFO.md)** - Complete medallion architecture guide
 
-### 🤖 AI & Analytics
+### AI & Analytics
 - **[Databricks Genie](docs/genie/DATABRICKS_GENIE.md)** - AI-powered natural language analytics
 - **[Genie Setup](docs/setup/SETUP_GENIE.md)** - Quick Genie Space configuration
 
-### 🔌 API Integration
+### API Integration
 - **[Ticketmaster API](docs/api/API_INFO.md)** - API documentation and usage
 
-**📋 [Full Documentation Index →](docs/README.md)**
+**[Full Documentation Index →](docs/README.md)**
 
 ### External Resources
-- [Databricks Medallion Architecture](https://www.databricks.com/glossary/medallion-architecture)
-- [Unity Catalog PK/FK Constraints](https://www.databricks.com/blog/primary-key-and-foreign-key-constraints-are-ga-and-now-enable-faster-queries)
-- [Databricks Asset Bundles Documentation](https://docs.databricks.com/dev-tools/bundles/)
-- [Auto Loader](https://docs.databricks.com/ingestion/auto-loader/index.html)
+- [Databricks Medallion Architecture](https://docs.databricks.com/lakehouse-architecture/medallion.html)
+- [Unity Catalog Constraints](https://docs.databricks.com/en/tables/constraints.html)
+- [Databricks Asset Bundles](https://docs.databricks.com/en/dev-tools/bundles/index.html)
+- [Auto Loader](https://docs.databricks.com/en/ingestion/auto-loader/index.html)
 - [Ticketmaster API Documentation](https://developer.ticketmaster.com/products-and-docs/apis/getting-started/)
 
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-1. Review the [documentation](docs/) first
-2. Follow existing code patterns and conventions
-3. Update relevant documentation with your changes
-4. Test thoroughly before submitting
-
-## 📝 License
+## License
 
 This project is for educational and demonstration purposes.
