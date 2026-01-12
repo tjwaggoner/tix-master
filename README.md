@@ -10,9 +10,10 @@ This pipeline uses a **two-phase approach** for data ingestion:
 
 1. **📥 Historical Ingestion** (One-Time Manual Run)
    - **When**: Run once before starting the scheduled job
-   - **What**: Loads 2 years historical + 1 year future events
+   - **What**: Loads 6 months historical + 1 year future events
    - **Where**: `src/ingestion/ticketmaster_historical_ingestion.py`
    - **How**: Open in Databricks workspace UI and click "Run All"
+   - **Note**: Historical lookback limited to 6 months due to Ticketmaster API data retention
    
 2. **🔄 Incremental Ingestion** (Daily Scheduled Job)
    - **When**: Runs automatically daily at 2 AM PST
@@ -117,10 +118,21 @@ All SCD Type 2 dimensions include:
 
 #### Primary Keys
 
-Composite primary key on `(surrogate_key, valid_from)` allows multiple versions:
+**Single-column primary key** on surrogate key to support foreign key constraints:
 ```sql
-PRIMARY KEY (venue_sk, valid_from)
+PRIMARY KEY (venue_sk)  -- Single column, not composite
 ```
+
+**Why single-column instead of composite?**
+- Allows fact/bridge tables to reference dimension via FK constraints
+- Composite PK `(venue_sk, valid_from)` would require fact table to store both columns
+- Fact table only stores `venue_sk_fk`, not the temporal component
+- Multiple versions per surrogate key are still allowed (SCD Type 2)
+
+**Trade-off**:
+- ✅ Enables FK constraints for query optimization and documentation
+- ⚠️ Doesn't enforce version uniqueness at PK level
+- ⚠️ UNIQUE constraint on `(venue_sk, valid_from)` would be ideal but is disabled in workspace
 
 #### Querying SCD Type 2 Dimensions
 
@@ -189,24 +201,45 @@ WHERE t.venue_id IS NULL  -- New records
 
 #### Foreign Key Constraints with SCD Type 2
 
-**Important:** The fact_events table does **not** have foreign key constraints to SCD Type 2 dimensions.
+**Good News:** The fact_events table **DOES** have foreign key constraints to all dimensions, including SCD Type 2 dimensions!
 
-**Why?**
-- SCD Type 2 dimensions use composite primary keys: `(surrogate_key, valid_from)`
-- Fact table stores only the surrogate key (e.g., `venue_sk_fk`), not the temporal component
-- Foreign key constraints require referencing the **exact** primary key columns
-- This is standard practice for SCD Type 2 implementations
+**How is this possible with SCD Type 2?**
+- Dimension PKs were changed from composite `(venue_sk, valid_from)` to single-column `(venue_sk)`
+- This allows fact table to reference dimension using just the surrogate key
+- FK constraints are **informational** (use RELY/RELY NOVALIDATE flags)
+- They help with query optimization and documentation, but don't enforce referential integrity
 
-**What about referential integrity?**
-- Databricks query optimizer works well without FK constraints
-- Referential integrity maintained through ETL logic and joins
-- Queries use `is_current = TRUE` filter, not FK relationships
+**Foreign Key Constraints:**
 
-**Foreign keys that exist:**
-- `fact_events.date_sk_fk` → `dim_date(date_sk)` ✓ (dim_date uses single-column PK)
-- `fact_events.event_date_fk` → `dim_date(date_key)` ✓ (alternative natural key)
+**fact_events**:
+- `date_sk_fk` → `dim_date(date_sk)` RELY
+- `venue_sk_fk` → `dim_venue(venue_sk)` RELY NOVALIDATE
+- `classification_sk_fk` → `dim_classification(classification_sk)` RELY NOVALIDATE
 
-All materialized views in the Gold layer automatically include the `is_current = TRUE` filter to ensure they show current dimension attributes only.
+**bridge_event_attractions**:
+- `event_sk_fk` → `fact_events(event_sk)` RELY
+- `attraction_sk_fk` → `dim_attraction(attraction_sk)` RELY NOVALIDATE
+
+**Column Comments on FK Fields:**
+All FK columns include detailed comments documenting:
+- Which table/column they reference
+- How the surrogate key is computed (MD5 formula)
+- For SCD Type 2 dimensions: "Must filter is_current = TRUE in joins"
+
+**Example:**
+```sql
+DESCRIBE TABLE ticket_master.gold.fact_events;
+-- venue_sk_fk comment:
+-- "Foreign key to dim_venue.venue_sk: MD5(venue_id).
+--  SCD Type 2: Must filter is_current = TRUE in joins."
+```
+
+**Why RELY NOVALIDATE?**
+- **RELY**: Tells query optimizer FK relationship exists (improves query plans)
+- **NOVALIDATE**: Doesn't enforce referential integrity (allows multiple dimension versions)
+- FK constraints are informational/documentary, not enforcement mechanisms
+- Referential integrity maintained through ETL logic
+- Queries must still use `is_current = TRUE` filter for SCD Type 2 dimensions
 
 ## 📊 ETL Pipeline
 
@@ -658,8 +691,30 @@ Open `src/ai/rag/setup_vector_search.py` and use the interactive widget:
 
 The vector index automatically syncs after each ETL run via the `sync_vector_index` task in the pipeline.
 
-## 📖 Additional Resources
+## 📖 Documentation
 
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
+
+### 🚀 Getting Started
+- **[Setup & Secrets](docs/setup/SECRETS_SETUP.md)** - Configure Databricks secrets and API keys
+- **[Deployment Guide](docs/setup/DEPLOYMENT.md)** - Deploy using Databricks Asset Bundles
+
+### 🏗️ Architecture & Design
+- **[Surrogate Keys](docs/SURROGATE_KEYS.md)** - Understanding surrogate key design patterns
+- **[Schema Retention](docs/architecture/SCHEMA_RETENTION_ANALYSIS.md)** - Data retention analysis
+- **[Pipeline Architecture](docs/architecture/databricks-pipeline-ebook.md)** - Complete medallion architecture guide
+
+### 🤖 AI & Analytics
+- **[Databricks Genie](docs/databricks-genie.md)** - AI-powered natural language analytics
+- **[Genie Setup](docs/setup_genie.md)** - Quick Genie Space configuration
+- **[Lakeview Dashboards](docs/lakeview-dashboard.md)** - Dashboard creation guide
+
+### 🔌 API Integration
+- **[Ticketmaster API](docs/api/API_INFO.md)** - API documentation and usage
+
+**📋 [Full Documentation Index →](docs/README.md)**
+
+### External Resources
 - [Databricks Medallion Architecture](https://www.databricks.com/glossary/medallion-architecture)
 - [Unity Catalog PK/FK Constraints](https://www.databricks.com/blog/primary-key-and-foreign-key-constraints-are-ga-and-now-enable-faster-queries)
 - [Databricks Asset Bundles Documentation](https://docs.databricks.com/dev-tools/bundles/)
@@ -668,9 +723,11 @@ The vector index automatically syncs after each ETL run via the `sync_vector_ind
 
 ## 🤝 Contributing
 
-For detailed architecture documentation, see `docs/ARCHITECTURE.md`.
-For deployment strategies, see `DEPLOYMENT.md`.
-For secrets setup, see `SECRETS_SETUP.md`.
+Contributions are welcome! Please:
+1. Review the [documentation](docs/) first
+2. Follow existing code patterns and conventions
+3. Update relevant documentation with your changes
+4. Test thoroughly before submitting
 
 ## 📝 License
 

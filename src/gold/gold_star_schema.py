@@ -237,7 +237,10 @@ create_dim_date()
 # MAGIC   valid_from TIMESTAMP NOT NULL,
 # MAGIC   valid_to TIMESTAMP,
 # MAGIC   is_current BOOLEAN NOT NULL,
-# MAGIC   CONSTRAINT dim_venue_pk PRIMARY KEY (venue_sk, valid_from)
+# MAGIC   CONSTRAINT dim_venue_pk PRIMARY KEY (venue_sk)
+# MAGIC   -- PK on venue_sk only to support FK references from fact/bridge tables
+# MAGIC   -- Note: UNIQUE constraint on (venue_sk, valid_from) would maintain SCD Type 2 integrity
+# MAGIC   -- but UNIQUE constraints are disabled in this workspace
 # MAGIC );
 
 # COMMAND ----------
@@ -335,7 +338,10 @@ create_dim_date()
 # MAGIC   valid_from TIMESTAMP NOT NULL,
 # MAGIC   valid_to TIMESTAMP,
 # MAGIC   is_current BOOLEAN NOT NULL,
-# MAGIC   CONSTRAINT dim_attraction_pk PRIMARY KEY (attraction_sk, valid_from)
+# MAGIC   CONSTRAINT dim_attraction_pk PRIMARY KEY (attraction_sk)
+# MAGIC   -- PK on attraction_sk only to support FK references from bridge table
+# MAGIC   -- Note: UNIQUE constraint on (attraction_sk, valid_from) would maintain SCD Type 2 integrity
+# MAGIC   -- but UNIQUE constraints are disabled in this workspace
 # MAGIC );
 
 # COMMAND ----------
@@ -419,7 +425,10 @@ create_dim_date()
 # MAGIC   valid_from TIMESTAMP NOT NULL,
 # MAGIC   valid_to TIMESTAMP,
 # MAGIC   is_current BOOLEAN NOT NULL,
-# MAGIC   CONSTRAINT dim_classification_pk PRIMARY KEY (classification_sk, valid_from)
+# MAGIC   CONSTRAINT dim_classification_pk PRIMARY KEY (classification_sk)
+# MAGIC   -- PK on classification_sk only to support FK references from fact table
+# MAGIC   -- Note: UNIQUE constraint on (classification_sk, valid_from) would maintain SCD Type 2 integrity
+# MAGIC   -- but UNIQUE constraints are disabled in this workspace
 # MAGIC );
 
 # COMMAND ----------
@@ -430,7 +439,7 @@ create_dim_date()
 # MAGIC MERGE INTO ticket_master.gold.dim_classification AS t
 # MAGIC USING (
 # MAGIC   SELECT
-# MAGIC     classification_id as classification_sk,
+# MAGIC     classification_sk,
 # MAGIC     classification_id,
 # MAGIC     segment_id,
 # MAGIC     segment_name,
@@ -438,7 +447,7 @@ create_dim_date()
 # MAGIC     type_name
 # MAGIC   FROM ticket_master.silver.classifications
 # MAGIC ) AS s
-# MAGIC ON t.classification_id = s.classification_id AND t.is_current = TRUE
+# MAGIC ON t.classification_sk = s.classification_sk AND t.is_current = TRUE
 # MAGIC WHEN MATCHED AND (
 # MAGIC   t.segment_id <> s.segment_id OR
 # MAGIC   t.segment_name <> s.segment_name OR
@@ -470,7 +479,7 @@ create_dim_date()
 # MAGIC   TRUE as is_current
 # MAGIC FROM (
 # MAGIC   SELECT
-# MAGIC     classification_id as classification_sk,
+# MAGIC     classification_sk,
 # MAGIC     classification_id,
 # MAGIC     segment_id,
 # MAGIC     segment_name,
@@ -479,8 +488,8 @@ create_dim_date()
 # MAGIC   FROM ticket_master.silver.classifications
 # MAGIC ) s
 # MAGIC LEFT JOIN ticket_master.gold.dim_classification t
-# MAGIC   ON s.classification_id = t.classification_id AND t.is_current = TRUE
-# MAGIC WHERE t.classification_id IS NULL  -- New records
+# MAGIC   ON s.classification_sk = t.classification_sk AND t.is_current = TRUE
+# MAGIC WHERE t.classification_sk IS NULL  -- New records
 # MAGIC    OR (  -- Changed records
 # MAGIC      t.segment_id <> s.segment_id OR
 # MAGIC      t.segment_name <> s.segment_name OR
@@ -533,11 +542,16 @@ create_dim_date()
 # MAGIC   event_url STRING,
 # MAGIC   CONSTRAINT fact_events_pk PRIMARY KEY (event_sk),
 # MAGIC   CONSTRAINT fact_events_date_fk FOREIGN KEY (date_sk_fk)
-# MAGIC     REFERENCES ticket_master.gold.dim_date(date_sk)
-# MAGIC   -- Note: No FK constraints to SCD Type 2 dimensions (venue, classification)
-# MAGIC   -- because their composite PKs (surrogate_key, valid_from) cannot be referenced
-# MAGIC   -- by fact table which only stores surrogate_key. This is standard for SCD Type 2.
-# MAGIC   -- Joins use: INNER JOIN dim_table d ON fact.dim_sk_fk = d.dim_sk AND d.is_current = TRUE
+# MAGIC     REFERENCES ticket_master.gold.dim_date(date_sk) RELY,
+# MAGIC   CONSTRAINT fact_events_venue_fk FOREIGN KEY (venue_sk_fk)
+# MAGIC     REFERENCES ticket_master.gold.dim_venue(venue_sk) RELY NOVALIDATE,
+# MAGIC   CONSTRAINT fact_events_classification_fk FOREIGN KEY (classification_sk_fk)
+# MAGIC     REFERENCES ticket_master.gold.dim_classification(classification_sk) RELY NOVALIDATE
+# MAGIC   -- Note: FK constraints to SCD Type 2 dimensions (venue, classification) use RELY NOVALIDATE
+# MAGIC   -- because the surrogate keys are not unique (multiple versions per surrogate key).
+# MAGIC   -- These are informational constraints for documentation and query optimization.
+# MAGIC   -- Queries MUST filter by is_current = TRUE when joining to SCD Type 2 dimensions.
+# MAGIC   -- Example: INNER JOIN dim_venue v ON f.venue_sk_fk = v.venue_sk AND v.is_current = TRUE
 # MAGIC   --
 # MAGIC   -- Grain: ONE row per event (event_sk is PK)
 # MAGIC   -- Venue: Latest venue from _embedded.venues[-1] stored in silver.events
@@ -565,7 +579,7 @@ create_dim_date()
 # MAGIC     e.event_type,
 # MAGIC     d.date_sk AS date_sk_fk,
 # MAGIC     e.event_date,
-# MAGIC     CAST(NULL AS STRING) AS classification_sk_fk, -- placeholder for future join
+# MAGIC     c.classification_sk AS classification_sk_fk,  -- Classification surrogate key from dimension
 # MAGIC     e.event_datetime,
 # MAGIC     e.event_time,
 # MAGIC     e.event_timezone,
@@ -580,6 +594,8 @@ create_dim_date()
 # MAGIC   FROM ticket_master.silver.events e
 # MAGIC   LEFT JOIN ticket_master.gold.dim_date d
 # MAGIC     ON e.event_date = d.date_value  -- Join on natural date to get surrogate key
+# MAGIC   LEFT JOIN ticket_master.gold.dim_classification c
+# MAGIC     ON e.classification_sk = c.classification_sk AND c.is_current = TRUE  -- Join on surrogate key
 # MAGIC ) AS s
 # MAGIC -- Match on event_sk only (proper grain: one row per event)
 # MAGIC ON t.event_sk = s.event_sk
@@ -664,7 +680,15 @@ create_dim_date()
 # MAGIC   attraction_sk_fk STRING NOT NULL,
 # MAGIC   event_id STRING NOT NULL,
 # MAGIC   attraction_id STRING NOT NULL,
-# MAGIC   CONSTRAINT bridge_event_attractions_pk PRIMARY KEY (event_sk_fk, attraction_sk_fk)
+# MAGIC   CONSTRAINT bridge_event_attractions_pk PRIMARY KEY (event_sk_fk, attraction_sk_fk),
+# MAGIC   CONSTRAINT bridge_events_fk FOREIGN KEY (event_sk_fk)
+# MAGIC     REFERENCES ticket_master.gold.fact_events(event_sk) RELY,
+# MAGIC   CONSTRAINT bridge_attractions_fk FOREIGN KEY (attraction_sk_fk)
+# MAGIC     REFERENCES ticket_master.gold.dim_attraction(attraction_sk) RELY NOVALIDATE
+# MAGIC   -- Note: FK to dim_attraction uses RELY NOVALIDATE because it is an SCD Type 2 dimension
+# MAGIC   -- where the surrogate key is not unique (multiple versions per surrogate key).
+# MAGIC   -- Queries MUST filter by is_current = TRUE when joining to dim_attraction.
+# MAGIC   -- Example: INNER JOIN dim_attraction a ON b.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE
 # MAGIC )
 # MAGIC CLUSTER BY (event_sk_fk);
 
@@ -785,6 +809,44 @@ create_dim_date()
 # MAGIC %sql
 # MAGIC -- Show all gold tables
 # MAGIC SHOW TABLES IN ticket_master.gold;
+
+# COMMAND ----------
+
+# Add column comments documenting surrogate key composition (idempotent - safe to run multiple times)
+try:
+    # Dimension tables
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.dim_venue ALTER COLUMN venue_sk COMMENT 'Surrogate key: MD5(venue_id)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.dim_attraction ALTER COLUMN attraction_sk COMMENT 'Surrogate key: MD5(attraction_name || segment_name)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.dim_classification ALTER COLUMN classification_sk COMMENT 'Surrogate key: MD5(segment_name || type_name)'")
+
+    # Fact table surrogate keys and foreign keys
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.fact_events ALTER COLUMN event_sk COMMENT 'Surrogate key: MD5(event_name || event_datetime)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.fact_events ALTER COLUMN date_sk_fk COMMENT 'Foreign key to dim_date.date_sk (sequential INT). Join directly without is_current filter.'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.fact_events ALTER COLUMN venue_sk_fk COMMENT 'Foreign key to dim_venue.venue_sk: MD5(venue_id). SCD Type 2: Must filter is_current = TRUE in joins.'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.fact_events ALTER COLUMN classification_sk_fk COMMENT 'Foreign key to dim_classification.classification_sk: MD5(segment_name || type_name). SCD Type 2: Must filter is_current = TRUE in joins.'")
+
+    # Bridge table foreign keys
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.bridge_event_attractions ALTER COLUMN event_sk_fk COMMENT 'Foreign key to fact_events.event_sk: MD5(event_name || event_datetime)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{GOLD_SCHEMA}.bridge_event_attractions ALTER COLUMN attraction_sk_fk COMMENT 'Foreign key to dim_attraction.attraction_sk: MD5(attraction_name || segment_name). SCD Type 2: Must filter is_current = TRUE in joins.'")
+
+    # Table comments explaining FK constraint behavior
+    spark.sql(f"""
+        COMMENT ON TABLE {CATALOG}.{GOLD_SCHEMA}.fact_events IS
+        'Fact table for events. FK constraints to SCD Type 2 dimensions (venue, classification) use RELY NOVALIDATE
+        because surrogate keys are not unique across dimension history. Queries MUST filter by is_current = TRUE
+        when joining to SCD Type 2 dimensions. Example: INNER JOIN dim_venue v ON f.venue_sk_fk = v.venue_sk AND v.is_current = TRUE'
+    """)
+
+    spark.sql(f"""
+        COMMENT ON TABLE {CATALOG}.{GOLD_SCHEMA}.bridge_event_attractions IS
+        'Bridge table for many-to-many relationship between events and attractions. FK to dim_attraction uses RELY NOVALIDATE
+        because attraction_sk is not unique (SCD Type 2). Queries MUST filter by is_current = TRUE when joining to dim_attraction.
+        Example: INNER JOIN dim_attraction a ON b.attraction_sk_fk = a.attraction_sk AND a.is_current = TRUE'
+    """)
+
+    print("✓ All Gold layer surrogate key comments and table comments added")
+except Exception as e:
+    print(f"⚠️  Could not add Gold layer comments (tables may not exist yet): {e}")
 
 # COMMAND ----------
 

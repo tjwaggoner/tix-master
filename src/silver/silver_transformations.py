@@ -268,13 +268,9 @@ def create_silver_venues_stream():
             col("_ingestion_timestamp")
         )
         .filter(col("venue_id").isNotNull())
-        # Add surrogate key based on business attributes for deduplication
+        # Add surrogate key: MD5(venue_id)
         .withColumn("venue_sk",
-            md5(concat_ws("||",
-                coalesce(col("venue_name"), lit("")),
-                coalesce(col("latitude").cast("string"), lit("0")),
-                coalesce(col("longitude").cast("string"), lit("0"))
-            ))
+            md5(col("venue_id"))
         )
     )
     
@@ -347,7 +343,7 @@ def create_silver_attractions_stream():
             "_ingestion_timestamp"
         )
         .filter(col("attraction_id").isNotNull())
-        # Add surrogate key based on business attributes for deduplication
+        # Add surrogate key: MD5(attraction_name || segment_name)
         .withColumn("attraction_sk",
             md5(concat_ws("||",
                 coalesce(col("attraction_name"), lit("")),
@@ -451,21 +447,29 @@ def create_silver_classifications_stream():
         if key_col in available_key_cols:
             key_parts.append(coalesce(col(key_col), lit("")))
     
+    # Build composite classification_id from API IDs (for reference)
     transformed_stream = (
         df_selected
         .withColumn("classification_id", sha2(concat_ws("_", *key_parts), 256))
         .filter(col("classification_id").isNotNull())
+        # Add surrogate key: MD5(segment_name || type_name)
+        .withColumn("classification_sk",
+            md5(concat_ws("||",
+                coalesce(col("segment_name"), lit("NONE")),
+                coalesce(col("type_name"), lit("NONE"))
+            ))
+        )
     )
-    
-    # Write with MERGE for deduplication
+
+    # Write with MERGE for deduplication on surrogate key
     query = (
         transformed_stream.writeStream
         .format("delta")
         .outputMode("update")
         .option("checkpointLocation", checkpoint_path)
         .foreachBatch(lambda df, batch_id: merge_upsert(
-            df, batch_id, silver_table, 
-            merge_keys=["classification_id"]
+            df, batch_id, silver_table,
+            merge_keys=["classification_sk"]  # Deduplicate on surrogate key
         ))
         .trigger(availableNow=True)
         .start()
@@ -515,11 +519,21 @@ print("\n✓ All dimension tables loaded!")
 # Add constraints to dimension tables after initial load
 print("\nAdding primary key constraints to dimension tables...")
 
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.venues", "venues_pk", ["venue_id"])
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.attractions", "attractions_pk", ["attraction_id"])
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.classifications", "classifications_pk", ["classification_id"])
+# PK constraints must match the merge keys for proper deduplication
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.venues", "venues_pk", ["venue_sk"])
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.attractions", "attractions_pk", ["attraction_sk"])
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.classifications", "classifications_pk", ["classification_sk"])
 
 print("✓ Primary key constraints added")
+
+# Add column comments documenting surrogate key composition (idempotent - safe to run multiple times)
+try:
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.venues ALTER COLUMN venue_sk COMMENT 'Surrogate key: MD5(venue_id)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.attractions ALTER COLUMN attraction_sk COMMENT 'Surrogate key: MD5(attraction_name || segment_name)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.classifications ALTER COLUMN classification_sk COMMENT 'Surrogate key: MD5(segment_name || type_name)'")
+    print("✓ Dimension table surrogate key comments added")
+except Exception as e:
+    print(f"⚠️  Could not add dimension comments (tables may not exist yet): {e}")
 
 # COMMAND ----------
 
@@ -566,7 +580,10 @@ def create_silver_events_stream():
             col("sales.public.endDateTime").cast("timestamp").alias("sales_end_datetime"),
             col("test").cast("boolean").alias("is_test"),
             col("classifications")[0]["segment"]["id"].alias("segment_id"),
+            col("classifications")[0]["segment"]["name"].alias("segment_name"),
             col("classifications")[0]["genre"]["id"].alias("genre_id"),
+            col("classifications")[0]["type"]["id"].alias("type_id"),
+            col("classifications")[0]["type"]["name"].alias("type_name"),
             # Extract latest venue ID (last element in array)
             element_at(col("_embedded.venues.id"), -1).alias("venue_id"),
             col("_ingestion_timestamp")
@@ -584,6 +601,13 @@ def create_silver_events_stream():
             when(col("venue_id").isNotNull(),
                 md5(col("venue_id"))
             ).otherwise(lit(None))
+        )
+        # Add classification surrogate key to match classifications dimension
+        .withColumn("classification_sk",
+            md5(concat_ws("||",
+                coalesce(col("segment_name"), lit("NONE")),
+                coalesce(col("type_name"), lit("NONE"))
+            ))
         )
     )
     
@@ -729,8 +753,8 @@ print("\n✓ All fact and bridge tables loaded!")
 # Add constraints after initial load
 print("\nAdding constraints to fact and bridge tables...")
 
-# Events primary key
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.events", "events_pk", ["event_id"])
+# Events primary key (using surrogate key to match merge key)
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.events", "events_pk", ["event_sk"])
 
 # Enable liquid clustering on events
 spark.sql(f"""
@@ -741,26 +765,37 @@ print("  ✓ Enabled liquid clustering on events")
 
 # Event-Venues bridge table: REMOVED (venue_sk now stored directly in events table)
 
-# Event-Attractions constraints
-add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.event_attractions", "event_attractions_pk", ["event_id", "attraction_id"])
+# Event-Attractions constraints (using surrogate keys to match merge keys)
+add_primary_key_if_not_exists(f"{CATALOG}.{SILVER_SCHEMA}.event_attractions", "event_attractions_pk", ["event_sk_fk", "attraction_sk_fk"])
 
 add_foreign_key_if_not_exists(
     table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_attractions",
     constraint_name="event_attractions_event_fk",
-    fk_columns=["event_id"],
+    fk_columns=["event_sk_fk"],
     reference_table=f"{CATALOG}.{SILVER_SCHEMA}.events",
-    reference_columns=["event_id"]
+    reference_columns=["event_sk"]
 )
 
 add_foreign_key_if_not_exists(
     table_name=f"{CATALOG}.{SILVER_SCHEMA}.event_attractions",
     constraint_name="event_attractions_attraction_fk",
-    fk_columns=["attraction_id"],
+    fk_columns=["attraction_sk_fk"],
     reference_table=f"{CATALOG}.{SILVER_SCHEMA}.attractions",
-    reference_columns=["attraction_id"]
+    reference_columns=["attraction_sk"]
 )
 
 print("✓ All constraints added successfully")
+
+# Add column comments for fact/bridge table surrogate keys (idempotent - safe to run multiple times)
+try:
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.events ALTER COLUMN event_sk COMMENT 'Surrogate key: MD5(event_name || event_datetime)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.events ALTER COLUMN venue_sk COMMENT 'Surrogate key: MD5(venue_id)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.events ALTER COLUMN classification_sk COMMENT 'Surrogate key: MD5(segment_name || type_name)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.event_attractions ALTER COLUMN event_sk_fk COMMENT 'Foreign key to events.event_sk: MD5(event_name || event_datetime)'")
+    spark.sql(f"ALTER TABLE {CATALOG}.{SILVER_SCHEMA}.event_attractions ALTER COLUMN attraction_sk_fk COMMENT 'Foreign key to attractions.attraction_sk: MD5(attraction_name || segment_name)'")
+    print("✓ Fact/bridge table surrogate key comments added")
+except Exception as e:
+    print(f"⚠️  Could not add fact/bridge comments (tables may not exist yet): {e}")
 
 # COMMAND ----------
 

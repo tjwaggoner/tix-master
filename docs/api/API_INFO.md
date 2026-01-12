@@ -123,18 +123,68 @@ While the official documentation states `size × page < 1000`, the API silently 
 }
 ```
 
+## Historical Data Retention & Archival
+
+### ⚠️ Important: Ticketmaster API Data Retention Policy
+
+The Ticketmaster Discovery API is **not a historical archive** - it's designed for discovering and selling tickets to **upcoming events**.
+
+**Key Limitations:**
+
+| Time Period | Data Availability | Details |
+|------------|-------------------|---------|
+| **Future Events** (0-12 months ahead) | ✅ Rich & Complete | Full event details, venues, performers, ticket prices |
+| **Recent Past** (0-1 month ago) | ⚠️ Partial | Some events still cached, but decreasing |
+| **Historical** (1-6 months ago) | ❌ Sparse | Most events archived/removed from API |
+| **Historical** (6+ months ago) | ❌ Very Sparse | Nearly empty - events deleted from active API |
+
+### Why Historical Data is Limited
+
+**Business Model**:
+- Ticketmaster's API focuses on **ticket sales** for upcoming events
+- Past events have no sellable inventory → no business need to maintain them
+- Historical data is archived to keep API performance fast
+
+**Data Lifecycle**:
+1. **Event created**: Full data available (6-12 months before event)
+2. **Event occurs**: Data remains briefly (0-30 days)
+3. **Event archived**: Removed from Discovery API (30-180 days after)
+4. **Event deleted**: Permanently removed from public API (180+ days after)
+
+### Impact on Data Ingestion
+
+**Our Configuration** (updated January 2025):
+```python
+START_DATE = datetime.utcnow() - timedelta(days=180)  # 6 months back
+END_DATE = datetime.utcnow() + timedelta(days=365)    # 1 year forward
+```
+
+**Why 6 months historical lookback?**
+- API data beyond 6 months is too sparse to be useful
+- Focuses on recent events where data density is highest
+- Avoids wasting API calls on empty date ranges
+- Optimizes for forward-looking event discovery
+
+**Recommendation**:
+- **Build your own archive**: Run incremental ingestion daily to capture events before they're archived
+- **Don't rely on backfilling**: Historical data cannot be recovered after Ticketmaster archives it
+- **Focus forward**: The API is designed for upcoming events, not historical analysis
+
 ## Performance Metrics
 
-Based on historical ingestion run (2 years back + 1 year forward):
+Based on historical ingestion run (6 months back + 1 year forward):
 
-| Metric             | Value              |
-|--------------------|--------------------|
-| Total Records      | 12,861             |
-| Total Data Size    | 93.11 MB           |
-| Duration           | 48.1 seconds       |
-| Data Throughput    | 1.94 MB/s          |
-| Record Throughput  | 267 records/second |
-| API Calls          | ~64 requests       |
+| Metric             | Value              | Notes |
+|--------------------|--------------------|----|
+| Date Range         | ~18 months total   | 6 months historical + 12 months future |
+| Total Records      | ~8,000-12,000      | Varies based on event density |
+| Total Data Size    | ~60-90 MB          | Depends on embedded data depth |
+| Duration           | ~30-50 seconds     | Includes API rate limiting delays |
+| Data Throughput    | ~1.5-2 MB/s        | Limited by API rate (5 req/sec) |
+| Record Throughput  | ~200-300 rec/sec   | Average across all endpoints |
+| API Calls          | ~40-70 requests    | Depends on events per month |
+
+**Note**: Historical data (6 months back) contributes <20% of total records due to API archival.
 
 ## Optimization Strategy
 

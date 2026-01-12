@@ -246,44 +246,44 @@ for entity_config in ENTITIES:
 
 # COMMAND ----------
 
-def create_continuous_bronze_stream(entity_config):
-    """
-    Create a continuously running Auto Loader stream
-    """
-    source_path = entity_config["source_path"]
-    table_name = entity_config["table_name"]
-    checkpoint_path = entity_config["checkpoint_path"]
+# def create_continuous_bronze_stream(entity_config):
+#     """
+#     Create a continuously running Auto Loader stream
+#     """
+#     source_path = entity_config["source_path"]
+#     table_name = entity_config["table_name"]
+#     checkpoint_path = entity_config["checkpoint_path"]
 
-    df = (
-        spark.readStream
-        .format("cloudFiles")
-        .option("cloudFiles.format", "json")
-        .option("cloudFiles.schemaLocation", f"{checkpoint_path}/schema")
-        .option("cloudFiles.inferColumnTypes", "true")
-        .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
-        .option("multiLine", "true")
-        .load(source_path)
-    )
+#     df = (
+#         spark.readStream
+#         .format("cloudFiles")
+#         .option("cloudFiles.format", "json")
+#         .option("cloudFiles.schemaLocation", f"{checkpoint_path}/schema")
+#         .option("cloudFiles.inferColumnTypes", "true")
+#         .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
+#         .option("multiLine", "true")
+#         .load(source_path)
+#     )
 
-    df_with_metadata = (
-        df
-        .withColumn("_ingestion_timestamp", current_timestamp())
-        .withColumn("_source_file", input_file_name())
-        .withColumn("_ingestion_date", to_date(current_timestamp()))
-    )
+#     df_with_metadata = (
+#         df
+#         .withColumn("_ingestion_timestamp", current_timestamp())
+#         .withColumn("_source_file", input_file_name())
+#         .withColumn("_ingestion_date", to_date(current_timestamp()))
+#     )
 
-    # Use processingTime trigger for micro-batch streaming
-    query = (
-        df_with_metadata.writeStream
-        .format("delta")
-        .option("checkpointLocation", checkpoint_path)
-        .option("mergeSchema", "true")
-        .partitionBy("_ingestion_date")
-        .trigger(processingTime="5 minutes")  # Check for new files every 5 minutes
-        .table(table_name)
-    )
+#     # Use processingTime trigger for micro-batch streaming
+#     query = (
+#         df_with_metadata.writeStream
+#         .format("delta")
+#         .option("checkpointLocation", checkpoint_path)
+#         .option("mergeSchema", "true")
+#         .partitionBy("_ingestion_date")
+#         .trigger(processingTime="5 minutes")  # Check for new files every 5 minutes
+#         .table(table_name)
+#     )
 
-    return query
+#     return query
 
 # COMMAND ----------
 

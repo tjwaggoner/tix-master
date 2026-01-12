@@ -85,16 +85,27 @@ The Tix-Master platform follows a **medallion architecture** (Bronze → Silver 
 │                    GOLD LAYER (Star Schema)                      │
 │                  ┌─────────────────┐                            │
 │                  │  fact_events    │                            │
-│                  │                 │                            │
-│                  └────┬──┬───┬────┘                            │
-│          ┌────────────┘  │   └──────────────┐                  │
-│          ▼               ▼                   ▼                  │
-│   ┌──────────┐   ┌─────────────┐    ┌──────────────┐          │
-│   │dim_venue │   │dim_attraction│    │   dim_date   │          │
-│   └──────────┘   └─────────────┘    └──────────────┘          │
-│  • Optimized for analytics                                      │
-│  • Liquid clustering                                            │
-│  • BI tool ready                                                │
+│                  │   (event_sk)    │                            │
+│                  └────┬─────┬──┬───┘                            │
+│          ┌────────────┘     │  └──────────────┐                │
+│          ▼                  │                  ▼                │
+│   ┌──────────┐              │           ┌──────────────┐       │
+│   │dim_venue │              │           │   dim_date   │       │
+│   │(venue_sk)│              │           │  (date_sk)   │       │
+│   └──────────┘              ▼           └──────────────┘       │
+│                  ┌──────────────────────────────┐              │
+│                  │ bridge_event_attractions     │              │
+│                  │  (event_sk, attraction_sk)   │              │
+│                  └────────────┬─────────────────┘              │
+│                               ▼                                 │
+│                        ┌─────────────┐                         │
+│                        │dim_attraction│                         │
+│                        │(attraction_sk│                         │
+│                        └─────────────┘                         │
+│                                                                  │
+│  • Optimized for analytics  • Bridge resolves many-to-many     │
+│  • Liquid clustering        • SCD Type 2 dimensions             │
+│  • BI tool ready           • FK constraints (RELY NOVALIDATE)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -451,18 +462,22 @@ WHEN NOT MATCHED THEN INSERT *
 ```sql
 -- Fact table with hash-based primary key
 CREATE TABLE fact_events (
-  event_sk STRING NOT NULL,        -- Hash from Silver
-  venue_sk STRING,                 -- Hash from Silver
-  attraction_sk STRING,            -- Hash from Silver
+  event_sk STRING NOT NULL,        -- Hash from Silver (PK)
+  venue_sk_fk STRING NOT NULL,     -- FK to dim_venue
+  classification_sk_fk STRING NOT NULL,  -- FK to dim_classification
+  date_sk_fk INT NOT NULL,         -- FK to dim_date
   event_datetime TIMESTAMP,
   price_min DOUBLE,
   price_max DOUBLE,
   -- ... more measures ...
-  PRIMARY KEY (event_sk, venue_sk, attraction_sk)
+  PRIMARY KEY (event_sk),
+  FOREIGN KEY (venue_sk_fk) REFERENCES dim_venue(venue_sk) RELY NOVALIDATE,
+  FOREIGN KEY (classification_sk_fk) REFERENCES dim_classification(classification_sk) RELY NOVALIDATE,
+  FOREIGN KEY (date_sk_fk) REFERENCES dim_date(date_sk) RELY
 )
-CLUSTER BY (event_date_key, venue_sk);
+CLUSTER BY (event_date, venue_sk_fk);
 
--- Dimension table
+-- Dimension table (SCD Type 2)
 CREATE TABLE dim_venue (
   venue_sk STRING NOT NULL,        -- Hash from Silver
   venue_name STRING,
@@ -474,6 +489,55 @@ CREATE TABLE dim_venue (
   valid_to TIMESTAMP,
   is_current BOOLEAN,
   PRIMARY KEY (venue_sk)
+);
+
+-- Dimension table (SCD Type 2)
+CREATE TABLE dim_attraction (
+  attraction_sk STRING NOT NULL,   -- Hash from Silver
+  attraction_name STRING,
+  segment_name STRING,
+  attraction_id STRING,            -- API ID
+  valid_from TIMESTAMP,
+  valid_to TIMESTAMP,
+  is_current BOOLEAN,
+  PRIMARY KEY (attraction_sk)
+);
+
+-- Dimension table (SCD Type 2)
+CREATE TABLE dim_classification (
+  classification_sk STRING NOT NULL, -- Hash from Silver
+  segment_name STRING,
+  genre_name STRING,
+  type_name STRING,
+  valid_from TIMESTAMP,
+  valid_to TIMESTAMP,
+  is_current BOOLEAN,
+  PRIMARY KEY (classification_sk)
+);
+
+-- Dimension table (Type 1)
+CREATE TABLE dim_date (
+  date_sk INT NOT NULL,
+  full_date DATE,
+  day_of_week STRING,
+  day_of_month INT,
+  month_name STRING,
+  month_number INT,
+  year INT,
+  quarter INT,
+  is_weekend BOOLEAN,
+  PRIMARY KEY (date_sk)
+);
+
+-- Bridge table (Many-to-Many resolution)
+CREATE TABLE bridge_event_attractions (
+  event_sk_fk STRING NOT NULL,
+  attraction_sk_fk STRING NOT NULL,
+  event_id STRING,                 -- API ID
+  attraction_id STRING,            -- API ID
+  PRIMARY KEY (event_sk_fk, attraction_sk_fk),
+  FOREIGN KEY (event_sk_fk) REFERENCES fact_events(event_sk) RELY,
+  FOREIGN KEY (attraction_sk_fk) REFERENCES dim_attraction(attraction_sk) RELY NOVALIDATE
 );
 ```
 
@@ -838,12 +902,12 @@ The Tix-Master platform demonstrates how Databricks enables organizations to bui
 - `event_attractions` - Event-Attraction bridge (event_sk, attraction_sk)
 
 **Gold Layer (Star Schema)**:
-- `fact_events` - Event fact table (PK: event_sk + venue_sk + attraction_sk)
-- `dim_venue` - Venue dimension (PK: venue_sk)
-- `dim_attraction` - Attraction dimension (PK: attraction_sk)
-- `dim_classification` - Classification dimension
-- `dim_market` - Market dimension
-- `dim_date` - Date dimension (PK: date_key in yyyyMMdd format)
+- `fact_events` - Event fact table (PK: event_sk, FKs: date_sk_fk, venue_sk_fk, classification_sk_fk)
+- `dim_venue` - Venue dimension (PK: venue_sk, SCD Type 2)
+- `dim_attraction` - Attraction dimension (PK: attraction_sk, SCD Type 2)
+- `dim_classification` - Classification dimension (PK: classification_sk, SCD Type 2)
+- `dim_date` - Date dimension (PK: date_sk INT, Type 1)
+- `bridge_event_attractions` - Event-Attraction bridge (Composite PK: event_sk_fk + attraction_sk_fk)
 
 ### Key Concepts
 

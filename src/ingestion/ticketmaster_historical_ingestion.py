@@ -22,7 +22,7 @@ See API_INFO.md for details.
 # MAGIC **⚠️ ONE-TIME MANUAL RUN - Not part of scheduled job**
 # MAGIC 
 # MAGIC This notebook performs the **historical full load** of data:
-# MAGIC 1. Fetches all upcoming events (next 365 days)
+# MAGIC 1. Fetches all upcoming events (next 365 days) and 6 months of historical events
 # MAGIC 2. Fetches all venues, attractions, and classifications
 # MAGIC 3. Writes raw JSON files to Unity Catalog Volumes
 # MAGIC 4. Prepares data for Bronze layer processing
@@ -62,14 +62,14 @@ PAGE_SIZE = 200
 MAX_PAGES = 4  # Ticketmaster limit: (page * size) < 1000, so 200*5=1000 is max
                # Using 4 pages (0-3) = 800 records per date chunk to stay safe
 
-# Date range for initial load - go back as far as possible, prioritize recent
-# Ticketmaster typically keeps ~2 years of historical data
-START_DATE_BASE = datetime.utcnow() - timedelta(days=730)  # 2 years back
+# Date range for initial load - focused on recent historical and future events
+# Ticketmaster API historical data is sparse beyond 6 months due to event archival
+START_DATE_BASE = datetime.utcnow() - timedelta(days=180)  # 6 months back
 END_DATE_BASE = datetime.utcnow() + timedelta(days=365)    # 1 year forward
 
 print(f"Volume Path: {VOLUME_PATH}")
 print(f"Event Date Range: {START_DATE_BASE.strftime('%Y-%m-%d')} to {END_DATE_BASE.strftime('%Y-%m-%d')}")
-print(f"  (2 years historical + 1 year future)")
+print(f"  (6 months historical + 1 year future)")
 print(f"Strategy: Chunked by month to avoid API pagination limits (max 800 events per chunk)")
 print(f"Note: Ticketmaster API limit is (page × size) < 1,000")
 
