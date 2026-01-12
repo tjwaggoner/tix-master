@@ -283,7 +283,7 @@ Task 6: generate_event_summary
 ```
 
 **What it does:**
-- Fetches 2 years of historical data + 1 year future events
+- Fetches 6 months of historical data + 1 year future events
 - Loads all venues, attractions, and classifications
 - Creates Unity Catalog resources (catalog, schema, volume)
 - Writes data to volumes for Bronze layer processing
@@ -304,7 +304,7 @@ Task 6: generate_event_summary
 - ✅ **Data Quality Checks** - Automated validation with orphaned record detection
 - ✅ **SCD Type 2** - Track historical changes in dimension tables
 - ✅ **CI/CD** - Databricks Asset Bundles for version-controlled deployments
-- ✅ **AI/BI Ready** - Integration with Genie and RAG assistants
+- ✅ **AI/BI Ready** - Integration with Databricks Genie for natural language analytics
 
 ## 🚀 Prerequisites
 
@@ -394,7 +394,7 @@ databricks bundle deploy
 
 This will:
 - ✅ Create Unity Catalog resources (catalog, schema, volume)
-- ✅ Fetch 2 years of historical events + 1 year future events
+- ✅ Fetch 6 months of historical events + 1 year future events
 - ✅ Load all venues, attractions, and classifications
 - ✅ Populate the volumes for Bronze layer processing
 
@@ -420,7 +420,7 @@ Based on recent ingestion run:
 **Key Takeaways for Scaling:**
 - The pipeline processes ~2 MB/s of JSON data
 - Can handle ~270 records/second end-to-end (API fetch → disk write)
-- Total historical load (2 years back + 1 year forward) completes in < 1 minute
+- Total historical load (6 months back + 1 year forward) completes in < 1 minute
 - Throughput is primarily limited by Ticketmaster API rate limits, not compute
 
 ### 5. Start the Scheduled Pipeline
@@ -461,11 +461,8 @@ tix-master/
 │   │   └── bronze_auto_loader.py
 │   ├── silver/                 # Silver layer transformation
 │   │   └── silver_transformations.py
-│   ├── gold/                   # Gold layer star schema
-│   │   └── gold_star_schema.py
-│   └── ai/                     # AI/BI integration
-│       ├── rag_assistant.py
-│       └── setup_genie.md
+│   └── gold/                   # Gold layer star schema
+│       └── gold_star_schema.py
 ├── sql/
 │   ├── ddl/                    # Table definitions
 │   │   └── create_etl_log.sql
@@ -617,80 +614,6 @@ All stored procedure executions are logged to `gold.etl_log`:
 4. **Use service principals** for staging/prod
 5. **Grant least-privilege** access via Unity Catalog
 
-## 🤖 AI/RAG Assistant
-
-The project includes a **RAG (Retrieval Augmented Generation)** assistant that enables natural language queries about events.
-
-### How It Works
-
-```
-User Question: "Rock concerts in LA under $100"
-       ↓
-1. Semantic Search (Vector Search)
-   → Finds similar events based on meaning
-       ↓
-2. Retrieved Context (Top 5 events)
-   → Event details with venue, date, price
-       ↓
-3. LLM Generation (Llama 3.1)
-   → Generates natural language answer
-       ↓
-Answer: "I found 3 rock concerts in LA under $100: ..."
-```
-
-### Components
-
-- **Vector Search**: Creates embeddings of event descriptions
-  - Endpoint: `ticket_master_vector_search`
-  - Embedding Model: `databricks-bge-large-en`
-  - Source Table: `gold.event_documents`
-  
-- **LLM**: Generates responses using Foundation Models
-  - Model: `databricks-meta-llama-3-1-70b-instruct`
-  - Temperature: 0.7 for conversational responses
-  
-- **Event Documents**: Combines data from star schema
-  - Event name, type, date
-  - Venue, location (city, state, country)
-  - Attraction, genre
-  - Price range
-
-### Running the RAG Assistant
-
-1. **Run the ETL pipeline** to populate star schema tables
-2. **Setup Vector Search**: `src/ai/rag/setup_vector_search.py`
-   - Creates vector search endpoint and index
-   - Includes interactive query widget for asking questions
-   - Use the widget or call functions directly in the notebook
-
-### Example Queries
-
-```python
-# Natural language questions
-ask_event_assistant("What concerts are happening in Los Angeles next weekend?")
-ask_event_assistant("Are there any sports events in New York in December?")
-ask_event_assistant("Show me rock concerts with tickets under $100")
-ask_event_assistant("What are the most popular venues for music events?")
-```
-
-### Interactive Mode
-
-The notebook includes a widget for interactive querying:
-- Enter question in the widget
-- Get formatted response with relevant event details
-- No SQL knowledge required!
-
-### Using the Assistant
-
-Open `src/ai/rag/setup_vector_search.py` and use the interactive widget:
-- Enter questions in natural language
-- Get AI-generated answers with event details
-- No code required!
-
-### Maintenance
-
-The vector index automatically syncs after each ETL run via the `sync_vector_index` task in the pipeline.
-
 ## 📖 Documentation
 
 Comprehensive documentation is available in the [`docs/`](docs/) directory:
@@ -700,14 +623,13 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **[Deployment Guide](docs/setup/DEPLOYMENT.md)** - Deploy using Databricks Asset Bundles
 
 ### 🏗️ Architecture & Design
-- **[Surrogate Keys](docs/SURROGATE_KEYS.md)** - Understanding surrogate key design patterns
+- **[Surrogate Keys](docs/reference/SURROGATE_KEYS.md)** - Understanding surrogate key design patterns
 - **[Schema Retention](docs/architecture/SCHEMA_RETENTION_ANALYSIS.md)** - Data retention analysis
-- **[Pipeline Architecture](docs/architecture/databricks-pipeline-ebook.md)** - Complete medallion architecture guide
+- **[Pipeline Architecture](docs/architecture/PIPELINE_INFO.md)** - Complete medallion architecture guide
 
 ### 🤖 AI & Analytics
-- **[Databricks Genie](docs/databricks-genie.md)** - AI-powered natural language analytics
-- **[Genie Setup](docs/setup_genie.md)** - Quick Genie Space configuration
-- **[Lakeview Dashboards](docs/lakeview-dashboard.md)** - Dashboard creation guide
+- **[Databricks Genie](docs/genie/DATABRICKS_GENIE.md)** - AI-powered natural language analytics
+- **[Genie Setup](docs/setup/SETUP_GENIE.md)** - Quick Genie Space configuration
 
 ### 🔌 API Integration
 - **[Ticketmaster API](docs/api/API_INFO.md)** - API documentation and usage
