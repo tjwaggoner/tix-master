@@ -2,39 +2,38 @@
 
 Welcome to the Ticketmaster data pipeline documentation. This directory contains comprehensive guides for understanding, deploying, and using the pipeline.
 
-## 📚 Documentation Index
+## Documentation Index
 
-### 🚀 Getting Started
+### Getting Started
 
 #### [Setup & Deployment](setup/)
 - **[SECRETS_SETUP.md](setup/SECRETS_SETUP.md)** - Configure Databricks secrets and API keys
 - **[DEPLOYMENT.md](setup/DEPLOYMENT.md)** - Deploy the pipeline using Databricks Asset Bundles (DAB)
 
-### 🏗️ Architecture & Design
+### Architecture & Design
 
 #### [Architecture Documentation](architecture/)
-- **[SURROGATE_KEYS.md](SURROGATE_KEYS.md)** - Understanding surrogate key design patterns
+- **[SURROGATE_KEYS.md](reference/SURROGATE_KEYS.md)** - Understanding surrogate key design patterns
 - **[SCHEMA_RETENTION_ANALYSIS.md](architecture/SCHEMA_RETENTION_ANALYSIS.md)** - Data retention and schema evolution analysis
-- **[databricks-pipeline-ebook.md](architecture/databricks-pipeline-ebook.md)** - Complete guide to medallion architecture implementation
+- **[PIPELINE_INFO.md](architecture/PIPELINE_INFO.md)** - Complete guide to medallion architecture implementation
 
-### 🔌 API Integration
+### API Integration
 
 #### [Ticketmaster API](api/)
 - **[API_INFO.md](api/API_INFO.md)** - Ticketmaster Discovery API documentation, endpoints, and usage
 
-### 🤖 AI & Analytics
+### AI & Analytics
 
-#### Data Discovery
-- **[databricks-genie.md](databricks-genie.md)** - Complete guide to Databricks Genie (AI-powered analytics)
-- **[setup_genie.md](setup_genie.md)** - Quick setup guide for Genie Spaces
-- **[genie_instructions.md](genie_instructions.md)** - Sample instructions for Genie configuration
+#### [Data Discovery with Genie](genie/)
+- **[DATABRICKS_GENIE.md](genie/DATABRICKS_GENIE.md)** - Complete guide to Databricks Genie (AI-powered analytics)
+- **[GENIE_INSTRUCTIONS.md](genie/GENIE_INSTRUCTIONS.md)** - Sample instructions for Genie configuration
 
-#### Dashboards & Visualization
-- **[lakeview-dashboard.md](lakeview-dashboard.md)** - Lakeview dashboard creation and management
+#### Setup Guides
+- **[SETUP_GENIE.md](setup/SETUP_GENIE.md)** - Quick setup guide for Genie Spaces
 
 ---
 
-## 🎯 Quick Navigation by Task
+## Quick Navigation by Task
 
 ### I want to...
 
@@ -43,54 +42,53 @@ Welcome to the Ticketmaster data pipeline documentation. This directory contains
 2. [Deploy with DAB](setup/DEPLOYMENT.md)
 
 **Understand the data model**
-1. [Architecture overview](architecture/databricks-pipeline-ebook.md)
-2. [Surrogate key patterns](SURROGATE_KEYS.md)
+1. [Architecture overview](architecture/PIPELINE_INFO.md)
+2. [Surrogate key patterns](reference/SURROGATE_KEYS.md)
 3. [Schema retention](architecture/SCHEMA_RETENTION_ANALYSIS.md)
 
 **Query data with natural language**
-1. [Learn about Genie](databricks-genie.md)
-2. [Set up Genie Space](setup_genie.md)
-3. [Configure instructions](genie_instructions.md)
+1. [Learn about Genie](genie/DATABRICKS_GENIE.md)
+2. [Set up Genie Space](setup/SETUP_GENIE.md)
+3. [Configure instructions](genie/GENIE_INSTRUCTIONS.md)
 
 **Work with the API**
 1. [API documentation](api/API_INFO.md)
-2. [Data ingestion patterns](architecture/databricks-pipeline-ebook.md#ingestion-layer)
-
-**Create dashboards**
-1. [Lakeview dashboard guide](lakeview-dashboard.md)
+2. [Data ingestion patterns](architecture/PIPELINE_INFO.md#ingestion-layer)
 
 ---
 
-## 📖 Documentation Standards
+## Documentation Standards
 
 ### File Organization
 
 ```
 docs/
 ├── README.md                      # This file - documentation index
-├── setup/                         # Setup and deployment guides
-│   ├── SECRETS_SETUP.md
-│   └── DEPLOYMENT.md
-├── architecture/                  # Architecture and design docs
-│   ├── SCHEMA_RETENTION_ANALYSIS.md
-│   └── databricks-pipeline-ebook.md
+├── DOCUMENTATION_STATUS.md        # Documentation tracking and status
 ├── api/                          # API integration documentation
 │   └── API_INFO.md
-├── SURROGATE_KEYS.md             # Data modeling patterns
-├── databricks-genie.md           # Genie comprehensive guide
-├── setup_genie.md                # Genie quick setup
-├── genie_instructions.md         # Genie configuration
-└── lakeview-dashboard.md         # Dashboard guide
+├── architecture/                  # Architecture and design docs
+│   ├── PIPELINE_INFO.md
+│   └── SCHEMA_RETENTION_ANALYSIS.md
+├── genie/                        # AI analytics with Genie
+│   ├── DATABRICKS_GENIE.md
+│   └── GENIE_INSTRUCTIONS.md
+├── reference/                    # Reference documentation
+│   └── SURROGATE_KEYS.md
+└── setup/                        # Setup and deployment guides
+    ├── DEPLOYMENT.md
+    ├── SECRETS_SETUP.md
+    └── SETUP_GENIE.md
 ```
 
 ### Naming Conventions
-- **Uppercase**: Major guides (SECRETS_SETUP.md, DEPLOYMENT.md)
-- **Lowercase hyphenated**: Feature-specific docs (databricks-genie.md, lakeview-dashboard.md)
+- **Uppercase with underscores**: All documentation files (SECRETS_SETUP.md, DATABRICKS_GENIE.md, PIPELINE_INFO.md)
 - **Descriptive names**: Clear indication of content
+- **Organized by topic**: Related docs grouped in subfolders
 
 ---
 
-## 🔄 Keeping Documentation Updated
+## Keeping Documentation Updated
 
 ### When to Update Documentation
 
@@ -99,20 +97,21 @@ docs/
 - DAB configuration changes → Update `setup/DEPLOYMENT.md`
 
 **Architecture Changes**
-- New tables or schema changes → Update `SURROGATE_KEYS.md`
+- New tables or schema changes → Update `reference/SURROGATE_KEYS.md`
 - Data retention policy changes → Update `architecture/SCHEMA_RETENTION_ANALYSIS.md`
+- Pipeline design patterns → Update `architecture/PIPELINE_INFO.md`
 
 **API Changes**
 - New endpoints or parameters → Update `api/API_INFO.md`
 - Rate limit changes → Update ingestion docs
 
 **Feature Additions**
-- New Genie capabilities → Update `databricks-genie.md`
-- New dashboard templates → Update `lakeview-dashboard.md`
+- New Genie capabilities → Update `genie/DATABRICKS_GENIE.md`
+- Genie configuration → Update `genie/GENIE_INSTRUCTIONS.md`
 
 ---
 
-## 💡 Contributing to Documentation
+## Contributing to Documentation
 
 ### Best Practices
 1. **Keep it current** - Update docs when code changes
@@ -166,24 +165,23 @@ Pros and cons of approach
 
 ---
 
-## 🔍 Documentation Status
+## Documentation Status
 
 | Document | Last Updated | Status |
 |----------|-------------|--------|
-| SECRETS_SETUP.md | 2024-12-17 | ✅ Current |
-| DEPLOYMENT.md | 2024-12-17 | ✅ Current |
-| API_INFO.md | 2025-01-06 | ✅ Current |
-| SURROGATE_KEYS.md | 2025-01-12 | ✅ Current |
-| databricks-genie.md | 2025-01-12 | ✅ Current |
-| SCHEMA_RETENTION_ANALYSIS.md | 2025-01-07 | ✅ Current |
-| databricks-pipeline-ebook.md | 2025-01-06 | ✅ Current |
-| setup_genie.md | - | ⚠️ Needs review |
-| genie_instructions.md | - | ⚠️ Needs review |
-| lakeview-dashboard.md | - | ⚠️ Needs review |
+| setup/SECRETS_SETUP.md | 2024-12-17 | Current |
+| setup/DEPLOYMENT.md | 2024-12-17 | Current |
+| setup/SETUP_GENIE.md | - | Needs review |
+| api/API_INFO.md | 2025-01-06 | Current |
+| architecture/PIPELINE_INFO.md | 2025-01-12 | Current |
+| architecture/SCHEMA_RETENTION_ANALYSIS.md | 2025-01-07 | Current |
+| genie/DATABRICKS_GENIE.md | 2025-01-12 | Current |
+| genie/GENIE_INSTRUCTIONS.md | - | Needs review |
+| reference/SURROGATE_KEYS.md | 2025-01-12 | Current |
 
 ---
 
-## 📧 Questions or Feedback?
+## Questions or Feedback?
 
 If you have questions about the documentation or suggestions for improvement:
 1. Review existing docs first

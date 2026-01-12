@@ -1,93 +1,83 @@
--- ============================================================
--- Dashboard Query Definitions
--- Copy each query below into Databricks SQL to create visualizations
--- Fixed to use correct system table schemas
--- ============================================================
-
--- =============================================================================
--- QUERY 0B: Hourly Cost by Task (Last 24 Hours)
--- =============================================================================
--- Name: Hourly Cost by Task
--- Visualization: Stacked Area Chart
--- X-Axis: usage_hour
--- Y-Axis: cost_usd
--- Group by: task_name
-SELECT 
-    DATE_TRUNC('HOUR', u.usage_start_time) as usage_hour,
-    COALESCE(u.usage_metadata.job_name, 'unknown') as job_name,
-    SUM(u.usage_quantity * p.pricing.`default`) as cost_usd
-FROM system.billing.usage u
-INNER JOIN system.billing.list_prices p
-    ON u.cloud = p.cloud
-    AND u.sku_name = p.sku_name
-    AND u.usage_start_time >= p.price_start_time
-    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
-WHERE u.usage_start_time >= CURRENT_TIMESTAMP - INTERVAL 24 HOURS
-    AND u.billing_origin_product = 'JOBS'
-    AND u.usage_metadata.job_id IS NOT NULL
-GROUP BY 1, 2
-ORDER BY usage_hour, cost_usd DESC;
-
--- =============================================================================
--- QUERY 0C: Current Hour Cost (Real-time Counter)
--- =============================================================================
--- Name: Current Hour Cost
--- Visualization: Counter
--- Format: Currency (2 decimals)
-SELECT 
-    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
-FROM system.billing.usage u
-INNER JOIN system.billing.list_prices p
-    ON u.cloud = p.cloud
-    AND u.sku_name = p.sku_name
-    AND u.usage_start_time >= p.price_start_time
-    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
-WHERE DATE_TRUNC('HOUR', u.usage_start_time) = DATE_TRUNC('HOUR', CURRENT_TIMESTAMP)
-    AND u.billing_origin_product = 'JOBS'
-    AND u.usage_metadata.job_id IS NOT NULL;
-
--- =============================================================================
--- QUERY 1: Cost Today (Counter visualization)
--- =============================================================================
--- Name: Cost Today
--- Visualization: Counter
--- Format: Currency (2 decimals)
-SELECT 
-    COALESCE(SUM(u.usage_quantity * p.pricing.default), 0) as cost_usd
-FROM system.billing.usage u
-INNER JOIN system.billing.list_prices p
-    ON u.cloud = p.cloud
-    AND u.sku_name = p.sku_name
-    AND u.usage_start_time >= p.price_start_time
-    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
-WHERE DATE(u.usage_start_time) = CURRENT_DATE
-    AND u.billing_origin_product = 'JOBS'
-    AND u.usage_metadata.job_id IS NOT NULL
-    AND u.workspace_id = '7474655348825387'
-
--- =============================================================================
--- QUERY 3: Cost Last 7 days by job type
--- =============================================================================
--- Name: L7D Cost Today
--- Visualization: Counter
--- Format: Currency (2 decimals)
-
-
-    SELECT 
-    DATE(u.usage_start_time) as usage_date,
-    COALESCE(u.usage_metadata.job_name, 'unknown') as job_name,
-    SUM(u.usage_quantity * p.pricing.`default`) as cost_usd
-FROM system.billing.usage u
-INNER JOIN system.billing.list_prices p
-    ON u.cloud = p.cloud
-    AND u.sku_name = p.sku_name
-    AND u.usage_start_time >= p.price_start_time
-    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
-WHERE DATE(u.usage_start_time) >= CURRENT_DATE - INTERVAL 7 DAYS
-    AND u.billing_origin_product = 'JOBS'
-    AND u.usage_metadata.job_id IS NOT NULL
-    AND u.workspace_id = '7474655348825387'
-GROUP BY 1, 2
-ORDER BY usage_date DESC, cost_usd DESC;
-
-
+-- Enter this manually under 'Data' in you dashboard SELECT                                                                                                                                                    
+      -- Event identifiers                                                                                                                                  
+      f.event_sk,                                                                                                                                           
+      f.event_id,                                                                                                                                           
+      f.event_name,                                                                                                                                         
+      f.event_type, 
+      round((f.price_max+f.price_min)/2,2) as avg_price,                                                                                                                                        
+                                                                                                                                                            
+      -- Date information                                                                                                                                   
+      f.event_date,                                                                                                                                         
+      f.event_datetime,                                                                                                                                     
+      d.day_name,                                                                                                                                           
+      d.month_name,                                                                                                                                         
+      d.year,                                                                                                                                               
+      d.quarter,                                                                                                                                            
+                                                                                                                                                            
+      -- Venue information                                                                                                                                  
+      v.venue_id,                                                                                                                                           
+      v.venue_name,                                                                                                                                         
+      v.city,                                                                                                                                               
+      v.state,                                                                                                                                              
+      v.country,                                                                                                                                            
+      v.latitude,                                                                                                                                           
+      v.longitude,                                                                                                                                          
+                                                                                                                                                            
+      -- Classification information                                                                                                                         
+      c.segment_name,                                                                                                                                       
+      c.genre_name,                                                                                                                                         
+      c.subgenre_name,                                                                                                                                      
+      c.type_name,                                                                                                                                          
+      c.subtype_name,                                                                                                                                       
+                                                                                                                                                            
+      -- Pricing                                                                                                                                            
+      f.price_min,                                                                                                                                          
+      f.price_max,                                                                                                                                          
+                                                                                                                                                            
+      -- Sales information                                                                                                                                  
+      f.sales_start_datetime,                                                                                                                               
+      f.sales_end_datetime,                                                                                                                                 
+                                                                                                                                                            
+      -- Status flag                                                                                                                                        
+      f.is_test,                                                                                                                                            
+                                                                                                                                                            
+      -- Aggregated attraction information (prevents fan-out)                                                                                               
+      COALESCE(attr.attraction_count, 0) as attraction_count,                                                                                               
+      attr.attraction_names as attraction_names,                                                                                                                                
+      attr.attraction_types,                                                                                                                                
+                                                                                                                                                            
+      -- URLs                                                                                                                                               
+      f.event_url                                                                                                                                           
+                                                                                                                                                            
+  FROM ticket_master.gold.fact_events f                                                                                                                     
+                                                                                                                                                            
+  -- Join to date dimension (no SCD, direct join)                                                                                                           
+  INNER JOIN ticket_master.gold.dim_date d                                                                                                                  
+      ON f.date_sk_fk = d.date_sk                                                                                                                           
+                                                                                                                                                            
+  -- Join to venue dimension (SCD Type 2 - need is_current filter)                                                                                          
+  LEFT JOIN ticket_master.gold.dim_venue v                                                                                                                  
+      ON f.venue_sk_fk = v.venue_sk                                                                                                                         
+      AND v.is_current = TRUE                                                                                                                               
+                                                                                                                                                            
+  -- Join to classification dimension (SCD Type 2 - need is_current filter)                                                                                 
+  LEFT JOIN ticket_master.gold.dim_classification c                                                                                                         
+      ON f.classification_sk_fk = c.classification_sk                                                                                                       
+      AND c.is_current = TRUE                                                                                                                               
+                                                                                                                                                            
+  -- Subquery to aggregate attractions per event (prevents fan-out)                                                                                         
+  LEFT JOIN (                                                                                                                                               
+      SELECT                                                                                                                                                
+          ea.event_sk_fk,                                                                                                                                   
+          COUNT(DISTINCT ea.attraction_sk_fk) as attraction_count,                                                                                          
+          string_agg(DISTINCT a.attraction_name, ', ') as attraction_names,                                                                                    
+          string_agg(DISTINCT a.attraction_type, ', ') as attraction_types                                                                                      
+      FROM ticket_master.gold.bridge_event_attractions ea                                                                                                   
+      INNER JOIN ticket_master.gold.dim_attraction a                                                                                                        
+          ON ea.attraction_sk_fk = a.attraction_sk                                                                                                          
+          AND a.is_current = TRUE                                                                                                                           
+      GROUP BY ea.event_sk_fk                                                                                                                               
+  ) attr ON f.event_sk = attr.event_sk_fk                                                                                                                   
+                                                                                                                                                            
+  WHERE f.is_test = FALSE                                                                                                                                   
+  ORDER BY f.event_datetime DESC;

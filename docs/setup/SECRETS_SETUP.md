@@ -63,12 +63,12 @@ The ingestion notebook will automatically retrieve the API key from secrets and 
 
 ## Security Best Practices
 
-✅ **DO:**
+**DO:**
 - Use secrets for all API keys and passwords
 - Use different scopes for dev/staging/prod
 - Limit access to secret scopes
 
-❌ **DON'T:**
+**DON'T:**
 - Hardcode API keys in notebooks or code
 - Share API keys in chat or email
 - Commit secrets to git

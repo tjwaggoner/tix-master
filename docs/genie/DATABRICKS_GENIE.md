@@ -169,7 +169,7 @@ This is a dimensional star schema with:
 ```sql
 -- Good column comment (helps Genie):
 COMMENT ON COLUMN fact_events.venue_sk_fk IS
-'Foreign key to dim_venue.venue_sk: MD5(venue_name || latitude || longitude).
+'Foreign key to dim_venue.venue_sk: MD5(venue_id).
 SCD Type 2: Must filter is_current = TRUE in joins.';
 
 -- Poor column comment (doesn't help):
@@ -228,16 +228,16 @@ COMMENT ON COLUMN fact_events.venue_sk_fk IS 'Venue foreign key';
 ### Tips for Better Results
 
 #### 1. **Be Specific**
-- ❌ "Show me events"
-- ✅ "Show me upcoming concerts in California with ticket prices"
+- BAD: "Show me events"
+- GOOD: "Show me upcoming concerts in California with ticket prices"
 
 #### 2. **Use Table/Column Names**
-- ❌ "Show classifications"
-- ✅ "Show me all events grouped by classification segment_name"
+- BAD: "Show classifications"
+- GOOD: "Show me all events grouped by classification segment_name"
 
 #### 3. **Specify Time Ranges**
-- ❌ "Show events"
-- ✅ "Show events in the next 7 days"
+- BAD: "Show events"
+- GOOD: "Show events in the next 7 days"
 
 #### 4. **Iterate and Refine**
 - Start broad: "Show me events by state"
@@ -252,20 +252,20 @@ COMMENT ON COLUMN fact_events.venue_sk_fk IS 'Venue foreign key';
 ## Understanding Genie's Limitations
 
 ### What Genie Can Do
-✅ Generate SQL queries from natural language
-✅ Handle complex joins and aggregations
-✅ Create visualizations automatically
-✅ Understand business context from comments
-✅ Handle SCD Type 2 patterns (with proper comments)
-✅ Execute on serverless or classic SQL warehouses
+- Generate SQL queries from natural language
+- Handle complex joins and aggregations
+- Create visualizations automatically
+- Understand business context from comments
+- Handle SCD Type 2 patterns (with proper comments)
+- Execute on serverless or classic SQL warehouses
 
 ### What Genie Cannot Do
-❌ Modify data (INSERT, UPDATE, DELETE)
-❌ Create tables or schemas
-❌ Access external data sources directly
-❌ Execute Python/Scala code
-❌ Perform ML model training
-❌ Access data outside granted permissions
+- Modify data (INSERT, UPDATE, DELETE)
+- Create tables or schemas
+- Access external data sources directly
+- Execute Python/Scala code
+- Perform ML model training
+- Access data outside granted permissions
 
 ### Common Issues
 

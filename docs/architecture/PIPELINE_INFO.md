@@ -434,7 +434,7 @@ update_checkpoint()
 **Silver Layer Deduplication**:
 ```python
 # venues table
-venue_sk = md5(venue_name || latitude || longitude)
+venue_sk = md5(venue_id)
 
 # attractions table
 attraction_sk = md5(attraction_name || segment_name)

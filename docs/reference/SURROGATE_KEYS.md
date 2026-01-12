@@ -139,15 +139,15 @@ This document describes the surrogate key composition for all dimension and fact
 **Before (Incorrect):** Primary keys were on natural API IDs, but MERGE operations used surrogate keys.
 ```python
 # WRONG - PK constraint didn't match merge key
-add_primary_key_if_not_exists("venues", "venues_pk", ["venue_id"])  # ❌
-merge_upsert(df, batch_id, "venues", merge_keys=["venue_sk"])       # ❌ Mismatch!
+add_primary_key_if_not_exists("venues", "venues_pk", ["venue_id"])  # ERROR
+merge_upsert(df, batch_id, "venues", merge_keys=["venue_sk"])       # Mismatch!
 ```
 
 **After (Correct):** Primary keys match MERGE keys for proper data integrity.
 ```python
 # CORRECT - PK constraint matches merge key
-add_primary_key_if_not_exists("venues", "venues_pk", ["venue_sk"])  # ✅
-merge_upsert(df, batch_id, "venues", merge_keys=["venue_sk"])       # ✅ Match!
+add_primary_key_if_not_exists("venues", "venues_pk", ["venue_sk"])  # OK
+merge_upsert(df, batch_id, "venues", merge_keys=["venue_sk"])       # Match!
 ```
 
 ## Impact on Gold Layer
@@ -182,29 +182,29 @@ To support foreign key constraints from fact and bridge tables, dimension PKs we
 
 **Before (Composite PK):**
 ```sql
-PRIMARY KEY (venue_sk, valid_from)  -- ❌ Cannot be referenced by single FK column
+PRIMARY KEY (venue_sk, valid_from)  -- Cannot be referenced by single FK column
 ```
 
 **After (Single-Column PK):**
 ```sql
-PRIMARY KEY (venue_sk)  -- ✅ Can be referenced by venue_sk_fk
+PRIMARY KEY (venue_sk)  -- Can be referenced by venue_sk_fk
 ```
 
 **Trade-offs:**
 
 | Aspect | Single-Column PK | Composite PK |
 |--------|------------------|--------------|
-| FK Constraints | ✅ Supported | ❌ Not possible with single FK column |
-| Version Uniqueness | ⚠️ Not enforced | ✅ Enforced at PK level |
-| Query Optimization | ✅ Query optimizer aware of relationships | ❌ No FK metadata |
-| Documentation | ✅ FK metadata visible via DESCRIBE TABLE | ❌ Relationships undocumented |
-| SCD Type 2 Support | ✅ Multiple versions allowed | ✅ Multiple versions allowed |
+| FK Constraints | Supported | Not possible with single FK column |
+| Version Uniqueness | Not enforced | Enforced at PK level |
+| Query Optimization | Query optimizer aware of relationships | No FK metadata |
+| Documentation | FK metadata visible via DESCRIBE TABLE | Relationships undocumented |
+| SCD Type 2 Support | Multiple versions allowed | Multiple versions allowed |
 
 **Ideal Solution (Disabled):**
 ```sql
 PRIMARY KEY (venue_sk),
 UNIQUE (venue_sk, valid_from)  -- Would enforce version uniqueness
--- ❌ UNIQUE constraints are disabled in this workspace
+-- UNIQUE constraints are disabled in this workspace
 ```
 
 ### FK Constraints in Gold Layer
@@ -359,7 +359,7 @@ SELECT
 FROM ticket_master.gold.fact_events e
 INNER JOIN ticket_master.gold.dim_venue v
   ON e.venue_sk_fk = v.venue_sk
-  AND v.is_current = TRUE  -- ⚠️ Required for SCD Type 2
+  AND v.is_current = TRUE  -- Required for SCD Type 2
 WHERE e.is_test = FALSE
   AND e.event_date >= CURRENT_DATE();
 ```
@@ -375,7 +375,7 @@ INNER JOIN ticket_master.gold.bridge_event_attractions b
   ON e.event_sk = b.event_sk_fk
 INNER JOIN ticket_master.gold.dim_attraction a
   ON b.attraction_sk_fk = a.attraction_sk
-  AND a.is_current = TRUE  -- ⚠️ Required for SCD Type 2
+  AND a.is_current = TRUE  -- Required for SCD Type 2
 WHERE e.is_test = FALSE;
 ```
 

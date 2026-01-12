@@ -5,85 +5,88 @@
 
 ---
 
-## ✅ Documents That Are Current
+## Documents That Are Current
 
 ### 1. **README.md** (Project Root)
-- ✅ Updated January 12, 2025
-- ✅ Primary Keys section corrected (lines 119-135)
-- ✅ Foreign Key Constraints section rewritten (lines 202-242)
-- ✅ Historical lookback updated to 6 months (lines 11-16)
-- ✅ Reflects current implementation
+- Updated January 12, 2025
+- Primary Keys section corrected (lines 119-135)
+- Foreign Key Constraints section rewritten (lines 202-242)
+- Historical lookback updated to 6 months (lines 11-16)
+- Reflects current implementation
 
-### 2. **docs/SURROGATE_KEYS.md**
-- ✅ Updated January 12, 2025
-- ✅ Comprehensive FK constraints section added
-- ✅ Documents dimension PK strategy (single-column)
-- ✅ Includes column comments documentation
-- ✅ Query examples with FK constraints
-- ✅ Verification SQL included
+### 2. **docs/reference/SURROGATE_KEYS.md**
+- Updated January 12, 2025
+- Comprehensive FK constraints section added
+- Documents dimension PK strategy (single-column)
+- Includes column comments documentation
+- Query examples with FK constraints
+- Verification SQL included
+- Updated venue_sk formula to use MD5(venue_id)
 
-### 3. **docs/architecture/databricks-pipeline-ebook.md**
-- ✅ Updated January 12, 2025
-- ✅ Fixed fact_events PK example (line 462) with FK constraints (lines 463-465)
-- ✅ Added complete CREATE TABLE examples for Gold layer:
+### 3. **docs/architecture/PIPELINE_INFO.md**
+- Updated January 12, 2025
+- Fixed fact_events PK example (line 462) with FK constraints (lines 463-465)
+- Added complete CREATE TABLE examples for Gold layer:
   - dim_attraction (lines 484-493)
   - dim_classification (lines 496-505)
   - dim_date (lines 508-519)
   - bridge_event_attractions (lines 522-530)
-- ✅ Fixed fact_events PK description in summary (line 894)
-- ✅ Added SCD Type 2 vs Type 1 clarifications
-- ✅ All constraint examples now accurate and complete
+- Fixed fact_events PK description in summary (line 894)
+- Added SCD Type 2 vs Type 1 clarifications
+- All constraint examples now accurate and complete
+- Updated venue_sk calculation to MD5(venue_id)
 
 ### 4. **docs/api/API_INFO.md**
-- ✅ Updated January 6, 2025
-- ✅ Comprehensive historical data retention section
-- ✅ 6-month lookback documented throughout
-- ✅ Performance metrics updated
-- ✅ Current and accurate
+- Updated January 6, 2025
+- Comprehensive historical data retention section
+- 6-month lookback documented throughout
+- Performance metrics updated
+- Current and accurate
 
-### 5. **docs/databricks-genie.md**
-- ✅ Created January 12, 2025
-- ✅ Comprehensive and accurate
-- ✅ Reflects current data model
+### 5. **docs/genie/DATABRICKS_GENIE.md**
+- Updated January 12, 2025
+- Comprehensive and accurate
+- Reflects current data model
+- Updated venue_sk_fk column comment
 
 ### 6. **docs/setup/SECRETS_SETUP.md**
-- ✅ Last updated December 17, 2024
-- ✅ No code changes affecting this
-- ✅ Still accurate
+- Last updated December 17, 2024
+- No code changes affecting this
+- Still accurate
 
 ### 7. **docs/setup/DEPLOYMENT.md**
-- ✅ Last updated December 17, 2024
-- ✅ DAB deployment unchanged
-- ✅ Still accurate
+- Last updated December 17, 2024
+- DAB deployment unchanged
+- Still accurate
 
 ### 8. **docs/README.md** (Documentation Index)
-- ✅ Created January 12, 2025
-- ✅ Accurate index of all docs
-- ✅ Current
+- Updated January 12, 2025
+- Accurate index of all docs
+- Current
 
 ---
 
-## 📋 Priority Update Checklist
+## Priority Update Checklist
 
-### High Priority (Incorrect Information) - ✅ COMPLETED
-- [x] **README.md** - Fix SCD Type 2 PK section (lines 119-135) - ✅ Updated January 12, 2025
-- [x] **README.md** - Rewrite FK constraints section (lines 202-242) - ✅ Updated January 12, 2025
-- [x] **docs/SURROGATE_KEYS.md** - Add FK constraints section - ✅ Updated January 12, 2025
-- [x] **docs/SURROGATE_KEYS.md** - Document dimension PK strategy - ✅ Updated January 12, 2025
+### High Priority (Incorrect Information) - COMPLETED
+- [DONE] **README.md** - Fix SCD Type 2 PK section (lines 119-135) - Updated January 12, 2025
+- [DONE] **README.md** - Rewrite FK constraints section (lines 202-242) - Updated January 12, 2025
+- [DONE] **docs/reference/SURROGATE_KEYS.md** - Add FK constraints section - Updated January 12, 2025
+- [DONE] **docs/reference/SURROGATE_KEYS.md** - Document dimension PK strategy - Updated January 12, 2025
 
-### Medium Priority (Incomplete Information) - ✅ COMPLETED
-- [x] **docs/SURROGATE_KEYS.md** - Add column comments documentation - ✅ Included in FK constraints section
-- [x] **docs/architecture/databricks-pipeline-ebook.md** - Verify PK examples - ✅ Fixed line 462, verified line 480
-- [x] **docs/api/API_INFO.md** - Verify 6-month lookback mention - ✅ Verified correct throughout
+### Medium Priority (Incomplete Information) - COMPLETED
+- [DONE] **docs/reference/SURROGATE_KEYS.md** - Add column comments documentation - Included in FK constraints section
+- [DONE] **docs/architecture/PIPELINE_INFO.md** - Verify PK examples - Fixed line 462, verified line 480
+- [DONE] **docs/api/API_INFO.md** - Verify 6-month lookback mention - Verified correct throughout
 
 ### Low Priority (Enhancement)
-- [ ] Add diagram showing FK relationships
-- [ ] Add troubleshooting section for FK constraints
-- [ ] Document query performance impact of FK constraints
+- [TODO] Add diagram showing FK relationships
+- [TODO] Add troubleshooting section for FK constraints
+- [TODO] Document query performance impact of FK constraints
 
 ---
 
-## 🔍 How to Verify Documentation Accuracy
+## How to Verify Documentation Accuracy
 
 ### 1. Check Against Live Schema
 
@@ -124,19 +127,19 @@ WHERE table_schema = 'gold' AND table_catalog = 'ticket_master';
 
 ---
 
-## 📅 Update Schedule
+## Update Schedule
 
 | Document | Last Updated | Next Review | Owner |
 |----------|-------------|-------------|-------|
-| README.md | Jan 7, 2025 | **IMMEDIATE** | Data Engineering |
-| SURROGATE_KEYS.md | Jan 12, 2025 | **IMMEDIATE** | Data Engineering |
-| databricks-pipeline-ebook.md | Jan 6, 2025 | Jan 13, 2025 | Data Engineering |
-| API_INFO.md | Jan 6, 2025 | Jan 13, 2025 | Data Engineering |
-| databricks-genie.md | Jan 12, 2025 | Feb 12, 2025 | Data Engineering |
+| README.md | Jan 12, 2025 | Feb 12, 2025 | Data Engineering |
+| reference/SURROGATE_KEYS.md | Jan 12, 2025 | Feb 12, 2025 | Data Engineering |
+| architecture/PIPELINE_INFO.md | Jan 12, 2025 | Feb 12, 2025 | Data Engineering |
+| api/API_INFO.md | Jan 6, 2025 | Feb 6, 2025 | Data Engineering |
+| genie/DATABRICKS_GENIE.md | Jan 12, 2025 | Feb 12, 2025 | Data Engineering |
 
 ---
 
-## 🚨 Critical Information for Users
+## Critical Information for Users
 
 **IMPORTANT**: Until documentation is updated, users should know:
 

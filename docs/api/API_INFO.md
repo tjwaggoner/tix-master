@@ -125,7 +125,7 @@ While the official documentation states `size × page < 1000`, the API silently 
 
 ## Historical Data Retention & Archival
 
-### ⚠️ Important: Ticketmaster API Data Retention Policy
+### Important: Ticketmaster API Data Retention Policy
 
 The Ticketmaster Discovery API is **not a historical archive** - it's designed for discovering and selling tickets to **upcoming events**.
 
@@ -133,10 +133,10 @@ The Ticketmaster Discovery API is **not a historical archive** - it's designed f
 
 | Time Period | Data Availability | Details |
 |------------|-------------------|---------|
-| **Future Events** (0-12 months ahead) | ✅ Rich & Complete | Full event details, venues, performers, ticket prices |
-| **Recent Past** (0-1 month ago) | ⚠️ Partial | Some events still cached, but decreasing |
-| **Historical** (1-6 months ago) | ❌ Sparse | Most events archived/removed from API |
-| **Historical** (6+ months ago) | ❌ Very Sparse | Nearly empty - events deleted from active API |
+| **Future Events** (0-12 months ahead) | Rich & Complete | Full event details, venues, performers, ticket prices |
+| **Recent Past** (0-1 month ago) | Partial | Some events still cached, but decreasing |
+| **Historical** (1-6 months ago) | Sparse | Most events archived/removed from API |
+| **Historical** (6+ months ago) | Very Sparse | Nearly empty - events deleted from active API |
 
 ### Why Historical Data is Limited
 
