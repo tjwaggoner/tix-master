@@ -17,7 +17,7 @@ This pipeline uses a **two-phase approach** for data ingestion:
 
 2. **Incremental Ingestion** (Daily Scheduled Job)
    - **When**: Runs automatically daily at 2 AM PST
-   - **What**: Fetches only new/updated data since last run
+   - **What**: Fetches events within a rolling date window (last run - 1 day to +365 days ahead) and refreshes venues/attractions/classifications
    - **Where**: `src/ingestion/ticketmaster_incremental_ingestion.py`
    - **How**: Automatically triggered by the scheduled job
 
