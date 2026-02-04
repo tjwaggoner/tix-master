@@ -108,8 +108,8 @@ try:
         dbutils.notebook.exit(error_msg)
     
     # Add 1-day lookback buffer to catch any updates
-    lookback = timedelta(days=1)
-    start_time = last_ingestion - lookback
+    # lookback = timedelta(days=1)
+    start_time = last_ingestion # - lookback
     START_DATE = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     print(f"✓ Incremental load starting from: {START_DATE}")
