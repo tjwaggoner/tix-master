@@ -113,7 +113,7 @@ try:
     START_DATE = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     print(f"✓ Incremental load starting from: {START_DATE}")
-    print(f"  (Last ingestion: {last_ingestion.strftime('%Y-%m-%dT%H:%M:%SZ')} with 1-day lookback)")
+    print(f"  (Last ingestion: {last_ingestion.strftime('%Y-%m-%dT%H:%M:%SZ')} with no lookback)")
         
 except Exception as e:
     error_msg = f"❌ ERROR: Could not determine last run time: {e}"
