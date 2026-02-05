@@ -12,6 +12,13 @@ resources:
           user_name: cassi.sullivan@databricks.com
         - level: CAN_MANAGE
           user_name: alexander.booth@databricks.com
+        - level: CAN_MANAGE
+          user_name: andrew.helmreich@databricks.com
+        - level: CAN_MANAGE
+          user_name: samwel.emmanuel@databricks.com
+        - level: CAN_MANAGE
+          user_name: kush.patel@databricks.com
+        
       
       # Email notifications
       email_notifications:
