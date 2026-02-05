@@ -1,4 +1,5 @@
--- Enter this manually under 'Data' in you dashboard SELECT                                                                                                                                                    
+-- Enter this manually under 'Data' in you dashboard 
+SELECT                                                                                                                                                    
       -- Event identifiers                                                                                                                                  
       f.event_sk,                                                                                                                                           
       f.event_id,                                                                                                                                           
